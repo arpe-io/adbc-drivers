@@ -69,13 +69,22 @@ detect_platform() {
   MANIFEST_KEY="${OS_MANIFEST}_${MANIFEST_ARCH}"
 }
 
-# Latest published tag for a driver, e.g. "arrowtds-v0.5.19" (empty if none).
-# GitHub returns releases newest-first, so the first prefix match is the latest.
+# Latest published STABLE tag for a driver, e.g. "arrowtds-v0.5.19" (empty if
+# none). GitHub returns releases newest-first, so the first match is the latest.
+# Prereleases are skipped: any version carrying a hyphen (e.g.
+# arrowtds-v0.5.19-rc1) is treated as a prerelease and ignored by `latest`.
+# Install one explicitly with `--version 0.5.19-rc1`.
 resolve_latest() {
   fetch "${API}?per_page=100" \
     | grep '"tag_name":' \
     | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' \
     | grep "^$1-v" \
+    | while IFS= read -r _t; do
+        case "${_t#"$1"-v}" in
+          *-*) : ;;                    # prerelease version — skip
+          *) printf '%s\n' "$_t" ;;
+        esac
+      done \
     | head -n1
 }
 

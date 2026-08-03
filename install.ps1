@@ -50,9 +50,16 @@ function Get-PlatformArch {
 
 function Resolve-LatestTag {
   param([string]$name)
-  # GitHub returns releases newest-first; the first prefix match is the latest.
+  # GitHub returns releases newest-first; the first STABLE prefix match is the
+  # latest. Prereleases (any version carrying a hyphen, e.g. arrowtds-v0.5.19-rc1)
+  # are skipped by `latest`; install one explicitly with -Version 0.5.19-rc1.
   $rels = Invoke-RestMethod -Uri "${Api}?per_page=100" -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-  foreach ($r in $rels) { if ($r.tag_name -like "$name-v*") { return $r.tag_name } }
+  foreach ($r in $rels) {
+    if ($r.tag_name -like "$name-v*") {
+      $rest = $r.tag_name.Substring("$name-v".Length)
+      if ($rest -notmatch '-') { return $r.tag_name }
+    }
+  }
   return $null
 }
 
