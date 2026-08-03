@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "dist_repo": "arpe-io/adbc-drivers",
+  "publisher": "Arpeio",
+  "drivers": {
+    "arrowtds": {
+      "display": "ArrowTDS",
+      "dbms": "Microsoft SQL Server",
+      "lib": "arrowtds_adbc_driver",
+      "entrypoint": "AdbcDriverInit"
+    },
+    "arrowfebe": {
+      "display": "ArrowFEBE",
+      "dbms": "PostgreSQL",
+      "lib": "arrowfebe_adbc_driver",
+      "entrypoint": "AdbcDriverInit"
+    }
+  }
+}

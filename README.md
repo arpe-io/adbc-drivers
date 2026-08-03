@@ -1,1 +1,91 @@
-# adbc-drivers
+# Arpeio ADBC drivers
+
+One-line installers for the Arpeio family of [ADBC](https://arrow.apache.org/adbc/)
+drivers. Each driver is a pure-native, high-performance ADBC driver that returns
+Apache Arrow directly.
+
+| Driver | Database | Load name |
+|---|---|---|
+| **ArrowTDS** | Microsoft SQL Server (incl. Azure SQL, Fabric) | `arrowtds` |
+| **ArrowFEBE** | PostgreSQL | `arrowfebe` |
+
+The driver *binaries* are published here as public GitHub Releases and are free
+to download. They are **licence-gated**: a driver requires a valid Arpeio licence
+at runtime — there is no trial build. Contact <sales@arpe.io> for a licence.
+
+## Install
+
+**Linux / macOS:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
+  | sh -s -- arrowtds --license /path/to/your.lic
+```
+
+**Windows (PowerShell):**
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.ps1))) `
+  arrowtds -License C:\path\to\your.lic
+```
+
+List what's available and the latest published version of each:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh | sh -s -- --list
+```
+
+## What the installer does
+
+1. Downloads the driver's shared library for your OS/arch from this repo's
+   Releases (tag `<driver>-v<version>`, e.g. `arrowtds-v0.5.19`) and verifies it
+   against the release `SHA256SUMS`.
+2. Installs the library (default: per-user, under `~/.local/lib/arpeio-adbc/`
+   on Unix / `%LOCALAPPDATA%\arpeio-adbc\` on Windows; `--system` / `-Scope
+   system` for a machine-wide install).
+3. Writes an **ADBC driver manifest** (`<driver>.toml`) into the ADBC driver
+   manager's search path, so the driver loads by name:
+
+   ```python
+   import adbc_driver_manager.dbapi as dbapi
+   with dbapi.connect(driver="arrowtds",
+                      db_kwargs={"uri": "sqlserver://sa:<pw>@host:1433/?database=db&encrypt=true"}) as conn:
+       ...
+   ```
+4. If you pass `--license <path>`, copies it next to the library as
+   `arpeio_adbc.lic` (where the driver looks for it by default).
+
+## Options
+
+| `install.sh` | `install.ps1` | Meaning |
+|---|---|---|
+| `--version X.Y.Z` | `-Version X.Y.Z` | Install a specific version (default: `latest`). |
+| `--user` (default) | `-Scope user` | Per-user install (no admin). |
+| `--system` | `-Scope system` | Machine-wide install (needs sudo/admin). |
+| `--license <path>` | `-License <path>` | Install your `.lic` next to the driver. |
+| `--prefix <dir>` | `-Prefix <dir>` | Override the library install directory. |
+| `--list` | `-List` | List drivers + latest published versions. |
+
+## Supplying the licence
+
+The installer does not bundle a licence. Supply yours in any of these ways (the
+driver checks them in order):
+
+1. the `arpeio.adbc.license` / `arpeio.adbc.license_file` ADBC database option;
+2. the `ARPEIO_ADBC_LICENCE` / `ARPEIO_ADBC_LICENCE_FILE` environment variable;
+3. a file named `arpeio_adbc.lic` next to the installed driver library
+   (what `--license` sets up for you).
+
+## Manifest search paths (advanced)
+
+The installer writes `<driver>.toml` where the ADBC driver manager searches:
+`~/.config/adbc/drivers` (Linux) · `~/Library/Application Support/ADBC/Drivers`
+(macOS) · `%LOCALAPPDATA%\ADBC\Drivers` (Windows), or the system equivalents with
+`--system`. If your client can't find it, point `ADBC_DRIVER_PATH` at the
+directory the installer reports.
+
+## Building from source
+
+The driver sources are proprietary and live in private repositories. This repo
+hosts only the installers, the driver registry (`registry.json`), and the
+published binaries.
