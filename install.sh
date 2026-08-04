@@ -94,7 +94,7 @@ Arpeio ADBC driver installer
 
 Usage:
   install.sh <driver> [--version <X.Y.Z|latest>] [--user|--system]
-             [--license <path>] [--prefix <dir>]
+             [--license <path> | --license-content <text>] [--prefix <dir>]
   install.sh --installed [--user|--system]
   install.sh --uninstall <driver> [--user|--system]
   install.sh --list
@@ -103,23 +103,26 @@ Usage:
 Drivers: ${ALL_DRIVERS}
 
 Options:
-  --version    Driver version to install (default: latest).
-  --user       Install for the current user (default): lib under
-               ~/.local/lib/arpeio-adbc, manifest in the user ADBC dir.
-  --system     Install system-wide (/opt/arpeio-adbc + system ADBC dir; needs
-               write permission — run with sudo).
-  --license    Path to your Arpeio licence (.lic); copied next to the driver as
-               arpeio_adbc.lic. Without it, set ARPEIO_ADBC_LICENCE_FILE or place
-               arpeio_adbc.lic next to the library yourself before use.
-  --prefix     Override the library install directory.
-  --installed  List the drivers installed on this machine (both scopes by
-               default; narrow with --user/--system).
-  --uninstall  Remove a driver: its library, copied licence, and manifest.
-               Acts on the user scope by default; --system for a machine install.
-  --list       List the available drivers and their latest published versions.
+  --version          Driver version to install (default: latest).
+  --user             Install for the current user (default): lib under
+                     ~/.local/lib/arpeio-adbc, manifest in the user ADBC dir.
+  --system           Install system-wide (/opt/arpeio-adbc + system ADBC dir;
+                     needs write permission — run with sudo).
+  --license          Path to your Arpeio licence (.lic); copied next to the
+                     driver as arpeio_adbc.lic.
+  --license-content  The licence text itself; written verbatim to arpeio_adbc.lic
+                     (handy for CI — note it is visible in the process list).
+  --prefix           Override the library install directory.
+  --installed        List the drivers installed on this machine (both scopes by
+                     default; narrow with --user/--system).
+  --uninstall        Remove a driver: its library, copied licence, and manifest.
+                     Acts on the user scope by default; --system for a machine one.
+  --list             List the available drivers and their latest published versions.
 
-The downloaded binary is license-gated: it requires a valid Arpeio licence at
-runtime. There is no trial build.
+Licence sources are tried in this order: --license, --license-content,
+\$ARPEIO_ADBC_LICENCE_FILE (a path), \$ARPEIO_ADBC_LICENCE (the content). The
+downloaded binary is licence-gated: it needs a valid Arpeio licence at runtime.
+There is no trial build.
 EOF
 }
 
@@ -165,6 +168,28 @@ manifest_version_of() { # <manifest> -> driver version (first `version = ` line)
 }
 manifest_libpath_of() { # <manifest> -> the shared library path
   awk -F' = ' '/^\[Driver\.shared\]/{f=1;next} f && / = /{gsub(/"/,"",$2);print $2;exit}' "$1"
+}
+
+# Resolve the licence from the first source that is set and write it next to the
+# driver as arpeio_adbc.lic. Precedence:
+#   --license <file> > --license-content <text> > $ARPEIO_ADBC_LICENCE_FILE
+#   (file) > $ARPEIO_ADBC_LICENCE (content). Returns 1 if no source was given.
+install_license() { # <libdir>
+  _dest="$1/arpeio_adbc.lic"
+  if [ -n "${LICENSE:-}" ]; then
+    [ -z "${LICENSE_CONTENT:-}" ] || err "pass only one of --license / --license-content"
+    [ -f "$LICENSE" ] || err "licence file not found: $LICENSE"
+    cp "$LICENSE" "$_dest"; info "  licence installed from --license: $_dest"
+  elif [ -n "${LICENSE_CONTENT:-}" ]; then
+    printf '%s\n' "$LICENSE_CONTENT" > "$_dest"; info "  licence installed from --license-content: $_dest"
+  elif [ -n "${ARPEIO_ADBC_LICENCE_FILE:-}" ]; then
+    [ -f "$ARPEIO_ADBC_LICENCE_FILE" ] || err "licence file not found: $ARPEIO_ADBC_LICENCE_FILE"
+    cp "$ARPEIO_ADBC_LICENCE_FILE" "$_dest"; info "  licence installed from ARPEIO_ADBC_LICENCE_FILE: $_dest"
+  elif [ -n "${ARPEIO_ADBC_LICENCE:-}" ]; then
+    printf '%s\n' "$ARPEIO_ADBC_LICENCE" > "$_dest"; info "  licence installed from ARPEIO_ADBC_LICENCE: $_dest"
+  else
+    return 1
+  fi
 }
 
 # ---- commands ----------------------------------------------------------------
@@ -229,12 +254,8 @@ do_install() {
   mv "$tmp/$asset" "$libpath"
   chmod 0755 "$libpath"
 
-  # Licence: copy next to the lib, or explain how to supply it.
-  if [ -n "${LICENSE:-}" ]; then
-    [ -f "$LICENSE" ] || err "licence file not found: $LICENSE"
-    cp "$LICENSE" "$libdir/arpeio_adbc.lic"
-    info "  licence installed: $libdir/arpeio_adbc.lic"
-  fi
+  # Licence: install it from whichever source was given (see install_license).
+  install_license "$libdir" || true
 
   manifest="$mandir/$name.toml"
   write_manifest "$manifest" "$name" "$ver" "$libpath"
@@ -247,11 +268,12 @@ do_install() {
     info "  (user manifest dir; if your ADBC client doesn't find it, set"
     info "   ADBC_DRIVER_PATH=$mandir)"
   fi
-  if [ -z "${LICENSE:-}" ] && [ ! -f "$libdir/arpeio_adbc.lic" ]; then
+  if [ ! -f "$libdir/arpeio_adbc.lic" ]; then
     info ""
-    info "  ACTION REQUIRED: this driver needs a valid Arpeio licence to load."
-    info "  Either re-run with --license <your.lic>, place arpeio_adbc.lic in"
-    info "  $libdir, or set ARPEIO_ADBC_LICENCE_FILE to its path."
+    info "  ACTION REQUIRED: this driver needs a valid Arpeio licence to load. Supply"
+    info "  it with --license <file> or --license-content <text>, set"
+    info "  ARPEIO_ADBC_LICENCE_FILE / ARPEIO_ADBC_LICENCE, or place arpeio_adbc.lic"
+    info "  in $libdir."
   fi
   info ""
   info "Load it by name, e.g. in Python:"
@@ -327,6 +349,7 @@ VERSION="latest"
 SCOPE="user"
 SCOPE_SET=0
 LICENSE=""
+LICENSE_CONTENT=""
 PREFIX=""
 ACTION=install
 
@@ -342,6 +365,8 @@ while [ $# -gt 0 ]; do
     --system) SCOPE="system"; SCOPE_SET=1 ;;
     --license) shift; LICENSE="${1:?--license needs a path}" ;;
     --license=*) LICENSE="${1#*=}" ;;
+    --license-content) shift; LICENSE_CONTENT="${1:?--license-content needs a value}" ;;
+    --license-content=*) LICENSE_CONTENT="${1#*=}" ;;
     --prefix) shift; PREFIX="${1:?--prefix needs a dir}" ;;
     --prefix=*) PREFIX="${1#*=}" ;;
     -*) err "unknown option '$1' (see --help)" ;;

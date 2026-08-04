@@ -90,7 +90,8 @@ to remove a machine-wide one. On Windows, use `-Installed` and
 | `--version X.Y.Z` | `-Version X.Y.Z` | Install a specific version (default: `latest`). |
 | `--user` (default) | `-Scope user` | Per-user install (no admin). |
 | `--system` | `-Scope system` | Machine-wide install (needs sudo/admin). |
-| `--license <path>` | `-License <path>` | Install your `.lic` next to the driver. |
+| `--license <path>` | `-License <path>` | Install your `.lic` file next to the driver. |
+| `--license-content <text>` | `-LicenseContent <text>` | Install the licence from inline text. |
 | `--prefix <dir>` | `-Prefix <dir>` | Override the library install directory. |
 | `--list` | `-List` | List *available* drivers + latest published versions. |
 | `--installed` | `-Installed` | List the drivers *installed* on this machine. |
@@ -98,13 +99,41 @@ to remove a machine-wide one. On Windows, use `-Installed` and
 
 ## Supplying the licence
 
-The installer does not bundle a licence. Supply yours in any of these ways (the
-driver checks them in order):
+The installer does not bundle a licence — you provide your own. It writes it next
+to the driver as `arpeio_adbc.lic`.
+
+### At install time
+
+Give the installer the licence in any of these ways; it uses the **first** one it
+finds, in this order:
+
+| Order | `install.sh` | `install.ps1` | Source |
+|---|---|---|---|
+| 1 | `--license <path>` | `-License <path>` | Copy an existing `.lic` **file**. |
+| 2 | `--license-content <text>` | `-LicenseContent <text>` | The licence **text** itself, written verbatim. |
+| 3 | `ARPEIO_ADBC_LICENCE_FILE` | `ARPEIO_ADBC_LICENCE_FILE` | Env var holding a **path** to a `.lic` file. |
+| 4 | `ARPEIO_ADBC_LICENCE` | `ARPEIO_ADBC_LICENCE` | Env var holding the licence **content**. |
+
+Passing both `--license` and `--license-content` is an error. The env-var forms are
+the safest for CI/secrets; a licence passed inline on the command line is visible
+in the shell history and process list.
+
+```sh
+# from a file
+... install.sh arrowtds --license /path/to/your.lic
+# from a secret in CI (bash)
+ARPEIO_ADBC_LICENCE="$MY_LICENCE_SECRET" ... install.sh arrowtds
+```
+
+### At runtime
+
+Alternatively, don't install a licence file and let the **driver** find one at
+connect time. It checks, in order:
 
 1. the `arpeio.adbc.license` / `arpeio.adbc.license_file` ADBC database option;
 2. the `ARPEIO_ADBC_LICENCE` / `ARPEIO_ADBC_LICENCE_FILE` environment variable;
 3. a file named `arpeio_adbc.lic` next to the installed driver library
-   (what `--license` sets up for you).
+   (what the install-time options above set up for you).
 
 ## Manifest search paths (advanced)
 

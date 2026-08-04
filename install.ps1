@@ -22,6 +22,7 @@ param(
   [string] $Version = "latest",
   [ValidateSet("user", "system")] [string] $Scope = "user",
   [string] $License,
+  [string] $LicenseContent,
   [string] $Prefix,
   [switch] $List,
   [switch] $Installed,
@@ -112,21 +113,50 @@ Arpeio ADBC driver installer (Windows)
 
 Usage:
   install.ps1 <driver> [-Version <X.Y.Z|latest>] [-Scope user|system]
-              [-License <path>] [-Prefix <dir>]
+              [-License <path> | -LicenseContent <text>] [-Prefix <dir>]
   install.ps1 -Installed [-Scope user|system]
   install.ps1 -Uninstall <driver> [-Scope user|system]
   install.ps1 -List
 
 Drivers: $($Registry.Keys -join ', ')
 
-  -Installed  List the drivers installed on this machine (both scopes by default;
-              narrow with -Scope). -Uninstall <driver> removes one (its library,
-              copied licence, and manifest; -Scope system for a machine install).
+  -License         Path to your Arpeio licence (.lic); copied next to the driver.
+  -LicenseContent  The licence text itself; written verbatim to arpeio_adbc.lic.
+  -Installed       List the drivers installed on this machine (both scopes by
+                   default; narrow with -Scope).
+  -Uninstall <d>   Remove a driver (its library, copied licence, and manifest;
+                   -Scope system for a machine install).
 
-The downloaded binary is license-gated: it requires a valid Arpeio licence at
-runtime. Re-run with -License <your.lic>, or set ARPEIO_ADBC_LICENCE_FILE, or
-place arpeio_adbc.lic next to the installed DLL.
+Licence sources are tried in order: -License, -LicenseContent,
+`$env:ARPEIO_ADBC_LICENCE_FILE (a path), `$env:ARPEIO_ADBC_LICENCE (the content).
+The downloaded binary is licence-gated: it needs a valid Arpeio licence at
+runtime. There is no trial build.
 "@
+}
+
+# Resolve the licence from the first source that is set and write it next to the
+# driver as arpeio_adbc.lic. Precedence:
+#   -License <file> > -LicenseContent <text> > $env:ARPEIO_ADBC_LICENCE_FILE
+#   (file) > $env:ARPEIO_ADBC_LICENCE (content). No-op if no source was given.
+function Install-License {
+  param([string]$libdir)
+  $licDest = Join-Path $libdir "arpeio_adbc.lic"
+  if ($License) {
+    if ($LicenseContent) { Fail "pass only one of -License / -LicenseContent" }
+    if (-not (Test-Path $License)) { Fail "licence file not found: $License" }
+    Copy-Item -Force $License $licDest
+    Write-Info "  licence installed from -License: $licDest"
+  } elseif ($LicenseContent) {
+    Set-Content -Path $licDest -Value $LicenseContent -Encoding UTF8
+    Write-Info "  licence installed from -LicenseContent: $licDest"
+  } elseif ($env:ARPEIO_ADBC_LICENCE_FILE) {
+    if (-not (Test-Path $env:ARPEIO_ADBC_LICENCE_FILE)) { Fail "licence file not found: $($env:ARPEIO_ADBC_LICENCE_FILE)" }
+    Copy-Item -Force $env:ARPEIO_ADBC_LICENCE_FILE $licDest
+    Write-Info "  licence installed from ARPEIO_ADBC_LICENCE_FILE: $licDest"
+  } elseif ($env:ARPEIO_ADBC_LICENCE) {
+    Set-Content -Path $licDest -Value $env:ARPEIO_ADBC_LICENCE -Encoding UTF8
+    Write-Info "  licence installed from ARPEIO_ADBC_LICENCE: $licDest"
+  }
 }
 
 function Install-Driver {
@@ -183,11 +213,9 @@ function Install-Driver {
     $libpath = Join-Path $libdir $asset
     Move-Item -Force $dest $libpath
 
-    if ($License) {
-      if (-not (Test-Path $License)) { Fail "licence file not found: $License" }
-      Copy-Item -Force $License (Join-Path $libdir "arpeio_adbc.lic")
-      Write-Info "  licence installed: $(Join-Path $libdir 'arpeio_adbc.lic')"
-    }
+    # Licence: install it from whichever source was given (see Install-License).
+    Install-License $libdir
+    $licDest = Join-Path $libdir "arpeio_adbc.lic"
 
     # The manifest path must use doubled backslashes to be a valid TOML string.
     $tomlPath = $libpath -replace '\\', '\\'
@@ -218,11 +246,12 @@ $manifestKey = "$tomlPath"
       [Environment]::SetEnvironmentVariable("ADBC_DRIVER_PATH", $mandir, "Machine")
       Write-Info "  (added $mandir to the machine ADBC_DRIVER_PATH; open a new shell)"
     }
-    if (-not $License -and -not (Test-Path (Join-Path $libdir "arpeio_adbc.lic"))) {
+    if (-not (Test-Path $licDest)) {
       Write-Info ""
       Write-Info "  ACTION REQUIRED: this driver needs a valid Arpeio licence to load."
-      Write-Info "  Re-run with -License <your.lic>, place arpeio_adbc.lic in"
-      Write-Info "  $libdir, or set ARPEIO_ADBC_LICENCE_FILE to its path."
+      Write-Info "  Supply it with -License <file> or -LicenseContent <text>, set"
+      Write-Info "  ARPEIO_ADBC_LICENCE_FILE / ARPEIO_ADBC_LICENCE, or place"
+      Write-Info "  arpeio_adbc.lic in $libdir."
     }
     Write-Info ""
     Write-Info "Load it by name, e.g. in Python:"
@@ -297,6 +326,9 @@ function Uninstall-Driver {
   Write-Info ""
   Write-Info "Uninstalled $name."
 }
+
+# Allow dot-sourcing to load the functions without running main (for tests).
+if ($env:ARPEIO_ADBC_INSTALL_SOURCE -eq "1") { return }
 
 # ---- main --------------------------------------------------------------------
 if ($Help) { Show-Usage; return }
