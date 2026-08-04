@@ -1,8 +1,14 @@
 # Arpeio ADBC drivers
 
+[![CI](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml/badge.svg)](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml)
+[![installer](https://img.shields.io/badge/installer-v0.1.0-2b8a3e)](https://github.com/arpe-io/adbc-drivers/releases)
+[![License: MIT](https://img.shields.io/github/license/arpe-io/adbc-drivers)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-informational)
+
 One-line installers for the Arpeio family of [ADBC](https://arrow.apache.org/adbc/)
 drivers. Each driver is a pure-native, high-performance ADBC driver that returns
-Apache Arrow directly.
+Apache Arrow directly — install it with a single command, then load it by name
+from any ADBC client.
 
 | Driver | Database | Load name |
 |---|---|---|
@@ -113,3 +119,16 @@ directory the installer reports.
 The driver sources are proprietary and live in private repositories. This repo
 hosts only the installers, the driver registry (`registry.json`), and the
 published binaries.
+
+## Contributing
+
+Contributions to the installers, registry, and docs are welcome. Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) — in short: fork, branch off `develop`, run the
+linters (`shellcheck` / `PSScriptAnalyzer`), and open a PR into `develop`.
+
+## Licence
+
+The contents of this repository (installers, registry, docs) are released under
+the [MIT License](LICENSE). The driver **binaries** downloaded by the installer
+are a separate, proprietary product and remain licence-gated at runtime — contact
+<sales@arpe.io> for a licence.

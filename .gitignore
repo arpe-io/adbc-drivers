@@ -1,0 +1,9 @@
+# Local tooling / editor state
+.serena/
+.vscode/
+.idea/
+.DS_Store
+
+# Temp / build artifacts
+*.tmp
+*.log
