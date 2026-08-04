@@ -3,7 +3,7 @@
 [![CI](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml/badge.svg)](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml)
 [![installer](https://img.shields.io/badge/installer-v0.2.0-2b8a3e)](https://github.com/arpe-io/adbc-drivers/releases)
 [![License: MIT](https://img.shields.io/github/license/arpe-io/adbc-drivers)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-informational)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows-informational)
 
 One-line installers for the Arpeio family of [ADBC](https://arrow.apache.org/adbc/)
 drivers. Each driver is a pure-native, high-performance ADBC driver that returns
