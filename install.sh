@@ -72,12 +72,11 @@ detect_platform() {
   MANIFEST_KEY="${OS_MANIFEST}_${MANIFEST_ARCH}"
 }
 
-# Latest published STABLE tag for a driver, e.g. "arrowtds-v0.5.19" (empty if
-# none). GitHub returns releases newest-first, so the first match is the latest.
-# Prereleases are skipped: any version carrying a hyphen (e.g.
-# arrowtds-v0.5.19-rc1) is treated as a prerelease and ignored by `latest`.
-# Install one explicitly with `--version 0.5.19-rc1`.
-resolve_latest() {
+# All published STABLE versions for a driver, newest-first (empty if none), one
+# per line, without the "<name>-v" tag prefix. GitHub returns releases
+# newest-first. Prereleases — any version carrying a hyphen, e.g. 0.5.19-rc1 —
+# are skipped; install one explicitly with `--version 0.5.19-rc1`.
+resolve_versions() {
   fetch "${API}?per_page=100" \
     | grep '"tag_name":' \
     | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' \
@@ -85,10 +84,15 @@ resolve_latest() {
     | while IFS= read -r _t; do
         case "${_t#"$1"-v}" in
           *-*) : ;;                    # prerelease version — skip
-          *) printf '%s\n' "$_t" ;;
+          *) printf '%s\n' "${_t#"$1"-v}" ;;
         esac
-      done \
-    | head -n1
+      done
+}
+
+# Latest published STABLE tag for a driver, e.g. "arrowtds-v0.5.19" (empty if
+# none) — the newest version from resolve_versions, with the tag prefix restored.
+resolve_latest() {
+  resolve_versions "$1" | head -n1 | while IFS= read -r _v; do printf '%s\n' "$1-v$_v"; done
 }
 
 usage() {
@@ -101,6 +105,7 @@ Usage:
   install.sh --installed [--user|--system]
   install.sh --uninstall <driver> [--user|--system]
   install.sh --list
+  install.sh --versions [<driver>]
   install.sh --help
 
 Drivers: ${ALL_DRIVERS}
@@ -121,6 +126,8 @@ Options:
   --uninstall        Remove a driver: its library, copied licence, and manifest.
                      Acts on the user scope by default; --system for a machine one.
   --list             List the available drivers and their latest published versions.
+  --versions         List every published version of each driver (or one driver,
+                     if named), newest first.
 
 Licence sources are tried in this order: --license, --license-content,
 \$ARPEIO_ADBC_LICENCE_FILE (a path), \$ARPEIO_ADBC_LICENCE (the content). The
@@ -207,6 +214,27 @@ do_list() {
   done
   info ""
   info "Install:  install.sh <driver> --license <your.lic>"
+}
+
+# List every published stable version of each driver (or just one, if a driver
+# name is given), newest-first.
+do_versions() {
+  if [ -n "${DRIVER:-}" ]; then
+    driver_field "$DRIVER" lib >/dev/null 2>&1 || err "unknown driver '$DRIVER' (see --list)"
+    _drivers=$DRIVER
+  else
+    _drivers=$ALL_DRIVERS
+  fi
+  info "Published Arpeio ADBC driver versions (dist: ${DIST_REPO}):"
+  info ""
+  for d in $_drivers; do
+    _joined=""
+    for _v in $(resolve_versions "$d"); do _joined="${_joined:+$_joined, }$_v"; done
+    [ -n "$_joined" ] || _joined="(not published yet)"
+    printf '  %-10s %-22s %s\n' "$d" "$(driver_field "$d" dbms)" "$_joined" >&2
+  done
+  info ""
+  info "Install a specific one:  install.sh <driver> --version <X.Y.Z>"
 }
 
 do_install() {
@@ -359,6 +387,7 @@ ACTION=install
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) ACTION=list ;;
+    --versions) ACTION=versions ;;
     --installed) ACTION=installed ;;
     --uninstall) ACTION=uninstall ;;
     --help|-h) usage; exit 0 ;;
@@ -380,6 +409,7 @@ done
 
 case "$ACTION" in
   list)      have curl || have wget || err "need curl or wget"; do_list ;;
+  versions)  have curl || have wget || err "need curl or wget"; do_versions ;;
   installed) do_installed ;;
   uninstall) [ -n "$DRIVER" ] || err "--uninstall needs a driver name (see --installed)"
              do_uninstall "$DRIVER" ;;

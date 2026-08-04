@@ -41,6 +41,12 @@ List what's available and the latest published version of each:
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh | sh -s -- --list
 ```
 
+List **every** published version (all drivers, or a single one), newest first:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh | sh -s -- --versions arrowtds
+```
+
 ## What the installer does
 
 1. Downloads the driver's shared library for your OS/arch from this repo's
@@ -94,6 +100,7 @@ to remove a machine-wide one. On Windows, use `-Installed` and
 | `--license-content <text>` | `-LicenseContent <text>` | Install the licence from inline text. |
 | `--prefix <dir>` | `-Prefix <dir>` | Override the library install directory. |
 | `--list` | `-List` | List *available* drivers + latest published versions. |
+| `--versions [<driver>]` | `-Versions [<driver>]` | List *every* published version (all drivers, or one). |
 | `--installed` | `-Installed` | List the drivers *installed* on this machine. |
 | `--uninstall <driver>` | `-Uninstall <driver>` | Remove an installed driver. |
 

@@ -25,6 +25,7 @@ param(
   [string] $LicenseContent,
   [string] $Prefix,
   [switch] $List,
+  [switch] $Versions,
   [switch] $Installed,
   [switch] $Uninstall,
   [switch] $Help
@@ -80,18 +81,29 @@ function Read-ManifestLibPath {
   return $null
 }
 
-function Resolve-LatestTag {
+# All published STABLE versions for a driver, newest-first (empty array if none),
+# without the "<name>-v" tag prefix. GitHub returns releases newest-first.
+# Prereleases (any version carrying a hyphen, e.g. 0.5.19-rc1) are skipped;
+# install one explicitly with -Version 0.5.19-rc1.
+function Resolve-Version {
   param([string]$name)
-  # GitHub returns releases newest-first; the first STABLE prefix match is the
-  # latest. Prereleases (any version carrying a hyphen, e.g. arrowtds-v0.5.19-rc1)
-  # are skipped by `latest`; install one explicitly with -Version 0.5.19-rc1.
   $rels = Invoke-RestMethod -Uri "${Api}?per_page=100" -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+  $out = @()
   foreach ($r in $rels) {
     if ($r.tag_name -like "$name-v*") {
       $rest = $r.tag_name.Substring("$name-v".Length)
-      if ($rest -notmatch '-') { return $r.tag_name }
+      if ($rest -notmatch '-') { $out += $rest }
     }
   }
+  return $out
+}
+
+# Latest published STABLE tag for a driver, e.g. "arrowtds-v0.5.19" (null if none)
+# - the newest version from Resolve-Version, with the tag prefix restored.
+function Resolve-LatestTag {
+  param([string]$name)
+  $vers = Resolve-Version $name
+  if ($vers.Count -gt 0) { return "$name-v$($vers[0])" }
   return $null
 }
 
@@ -107,6 +119,25 @@ function Show-List {
   Write-Info "Install:  install.ps1 arrowtds -License C:\path\to\your.lic"
 }
 
+# List every published stable version of each driver (or just one, if a driver
+# name is given), newest-first.
+function Show-Version {
+  param([string]$name)
+  $drivers = if ($name) {
+    if (-not $Registry.Contains($name)) { Fail "unknown driver '$name' (try -List)" }
+    @($name)
+  } else { @($Registry.Keys) }
+  Write-Info "Published Arpeio ADBC driver versions (dist: $DistRepo):"
+  Write-Info ""
+  foreach ($d in $drivers) {
+    $vers = Resolve-Version $d
+    $shown = if ($vers.Count -gt 0) { $vers -join ", " } else { "(not published yet)" }
+    Write-Info ("  {0,-10} {1,-22} {2}" -f $d, $Registry[$d].dbms, $shown)
+  }
+  Write-Info ""
+  Write-Info "Install a specific one:  install.ps1 <driver> -Version X.Y.Z"
+}
+
 function Show-Usage {
   Write-Info @"
 Arpeio ADBC driver installer (Windows)
@@ -117,11 +148,14 @@ Usage:
   install.ps1 -Installed [-Scope user|system]
   install.ps1 -Uninstall <driver> [-Scope user|system]
   install.ps1 -List
+  install.ps1 -Versions [<driver>]
 
 Drivers: $($Registry.Keys -join ', ')
 
   -License         Path to your Arpeio licence (.lic); copied next to the driver.
   -LicenseContent  The licence text itself; written verbatim to arpeio_adbc.lic.
+  -Versions        List every published version of each driver (or one driver,
+                   if named), newest first.
   -Installed       List the drivers installed on this machine (both scopes by
                    default; narrow with -Scope).
   -Uninstall <d>   Remove a driver (its library, copied licence, and manifest;
@@ -338,5 +372,6 @@ if ($Uninstall) {
   Uninstall-Driver $Driver; return
 }
 if ($List) { Show-List; return }
+if ($Versions) { Show-Version $Driver; return }
 if (-not $Driver) { Show-List; return }
 Install-Driver $Driver
