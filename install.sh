@@ -58,7 +58,10 @@ detect_platform() {
   _os=$(uname -s); _machine=$(uname -m)
   case "$_os" in
     Linux)  OS_ASSET=linux; OS_MANIFEST=linux; LIB_PREFIX=lib; LIB_EXT=so ;;
-    Darwin) OS_ASSET=macos; OS_MANIFEST=macos; LIB_PREFIX=lib; LIB_EXT=dylib ;;
+    # macOS is not published yet. The macOS plumbing below (dylib, manifest dirs)
+    # is kept intact so this is a one-line re-enable once binaries are ready:
+    #   Darwin) OS_ASSET=macos; OS_MANIFEST=macos; LIB_PREFIX=lib; LIB_EXT=dylib ;;
+    Darwin) err "macOS is not supported yet (Linux and Windows only for now)" ;;
     *) err "unsupported OS '$_os' (use install.ps1 on Windows)" ;;
   esac
   case "$_machine" in
