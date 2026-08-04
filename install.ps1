@@ -24,10 +24,15 @@ param(
   [string] $License,
   [string] $Prefix,
   [switch] $List,
+  [switch] $Installed,
+  [switch] $Uninstall,
   [switch] $Help
 )
 
 $ErrorActionPreference = "Stop"
+# Did the caller pass -Scope explicitly? (used to decide whether -Installed scans
+# both levels or just one).
+$ScopeExplicit = $PSBoundParameters.ContainsKey("Scope")
 $DistRepo = "arpe-io/adbc-drivers"
 $Api = "https://api.github.com/repos/$DistRepo/releases"
 $Dl  = "https://github.com/$DistRepo/releases/download"
@@ -46,6 +51,32 @@ function Get-PlatformArch {
     "ARM64" { return @{ asset = "arm64"; manifest = "arm64" } }
     default { Fail "unsupported architecture '$($env:PROCESSOR_ARCHITECTURE)'" }
   }
+}
+
+# The two manifest search dirs. On Windows the system mechanism is really the
+# registry; we install/scan a stable ProgramData dir added to ADBC_DRIVER_PATH.
+function Get-UserManifestDir   { Join-Path $env:LOCALAPPDATA "ADBC\Drivers" }
+function Get-SystemManifestDir { Join-Path $env:ProgramData "arpeio-adbc\adbc\drivers" }
+
+# Read fields back out of an installed manifest (source of truth for uninstall).
+function Read-ManifestVersion {
+  param([string]$path)
+  # First `version = "..."` line is the driver version (the [ADBC] one follows).
+  $m = Select-String -Path $path -Pattern '^version = "([^"]+)"' | Select-Object -First 1
+  if ($m) { return $m.Matches[0].Groups[1].Value }
+  return $null
+}
+function Read-ManifestLibPath {
+  param([string]$path)
+  $inShared = $false
+  foreach ($line in (Get-Content -Path $path)) {
+    if ($line -match '^\[Driver\.shared\]') { $inShared = $true; continue }
+    if ($inShared -and $line -match '= "(.+)"\s*$') {
+      # Install writes doubled backslashes for valid TOML; unescape them.
+      return ($matches[1] -replace '\\\\', '\')
+    }
+  }
+  return $null
 }
 
 function Resolve-LatestTag {
@@ -82,9 +113,15 @@ Arpeio ADBC driver installer (Windows)
 Usage:
   install.ps1 <driver> [-Version <X.Y.Z|latest>] [-Scope user|system]
               [-License <path>] [-Prefix <dir>]
+  install.ps1 -Installed [-Scope user|system]
+  install.ps1 -Uninstall <driver> [-Scope user|system]
   install.ps1 -List
 
 Drivers: $($Registry.Keys -join ', ')
+
+  -Installed  List the drivers installed on this machine (both scopes by default;
+              narrow with -Scope). -Uninstall <driver> removes one (its library,
+              copied licence, and manifest; -Scope system for a machine install).
 
 The downloaded binary is license-gated: it requires a valid Arpeio licence at
 runtime. Re-run with -License <your.lic>, or set ARPEIO_ADBC_LICENCE_FILE, or
@@ -116,14 +153,10 @@ function Install-Driver {
   elseif ($Scope -eq "system") { $libdir = Join-Path $env:ProgramFiles "arpeio-adbc\$name" }
   else                      { $libdir = Join-Path $env:LOCALAPPDATA "arpeio-adbc\$name" }
 
-  if ($Scope -eq "system") {
-    # No auto-searched system directory exists on Windows for .toml manifests
-    # (the system mechanism is the registry); install to a stable dir and add it
-    # to the machine ADBC_DRIVER_PATH.
-    $mandir = Join-Path $env:ProgramData "arpeio-adbc\adbc\drivers"
-  } else {
-    $mandir = Join-Path $env:LOCALAPPDATA "ADBC\Drivers"
-  }
+  # No auto-searched system directory exists on Windows for .toml manifests (the
+  # system mechanism is the registry); -Scope system installs to a stable
+  # ProgramData dir added to the machine ADBC_DRIVER_PATH.
+  if ($Scope -eq "system") { $mandir = Get-SystemManifestDir } else { $mandir = Get-UserManifestDir }
 
   Write-Info "Installing $name $ver ($manifestKey)"
   Write-Info "  from $url"
@@ -200,8 +233,78 @@ $manifestKey = "$tomlPath"
   }
 }
 
+# List drivers actually installed on this machine, scanning both the user and
+# system locations (or just one if -Scope was given). The manifest is the source
+# of truth; version + library path are read back out of it.
+function Show-Installed {
+  $scopes = if ($ScopeExplicit) { @($Scope) } else { @("user", "system") }
+  $found = $false
+  Write-Info "Installed Arpeio ADBC drivers:"
+  Write-Info ""
+  foreach ($name in $Registry.Keys) {
+    foreach ($scope in $scopes) {
+      $mdir = if ($scope -eq "system") { Get-SystemManifestDir } else { Get-UserManifestDir }
+      $manifest = Join-Path $mdir "$name.toml"
+      if (-not (Test-Path $manifest)) { continue }
+      $found = $true
+      $ver = Read-ManifestVersion $manifest; if (-not $ver) { $ver = "?" }
+      $lp  = Read-ManifestLibPath $manifest
+      $lic = if ($lp -and (Test-Path (Join-Path (Split-Path $lp -Parent) "arpeio_adbc.lic"))) { "yes" } else { "no" }
+      Write-Info ("  {0,-10} {1,-22} {2,-9} {3,-6} licence:{4,-4} {5}" -f `
+        $name, $Registry[$name].dbms, $ver, $scope, $lic, $lp)
+    }
+  }
+  if (-not $found) {
+    Write-Info "  (none installed)"
+    Write-Info ""
+    Write-Info "Install one with:  install.ps1 <driver> -License C:\path\to\your.lic"
+  }
+}
+
+# Remove a driver from a single scope (default user; -Scope system for the
+# machine install), matching how install resolves scope. Removes the library,
+# the copied licence, the now-empty per-driver dir, and the manifest.
+function Uninstall-Driver {
+  param([string]$name)
+  if (-not $Registry.Contains($name)) { Fail "unknown driver '$name' (try -List)" }
+  if ($Scope -eq "system") { $mdir = Get-SystemManifestDir; $other = "-Scope user" }
+  else                     { $mdir = Get-UserManifestDir;   $other = "-Scope system" }
+  $manifest = Join-Path $mdir "$name.toml"
+  if (-not (Test-Path $manifest)) { Fail "'$name' is not installed at the $Scope level (try ${other}?)" }
+
+  Write-Info "Uninstalling $name ($Scope)"
+  try {
+    $libpath = Read-ManifestLibPath $manifest
+    if ($libpath -and (Test-Path $libpath)) {
+      $libdir = Split-Path $libpath -Parent
+      Remove-Item -Force $libpath
+      Write-Info "  removed library:  $libpath"
+      $lic = Join-Path $libdir "arpeio_adbc.lic"
+      if (Test-Path $lic) { Remove-Item -Force $lic; Write-Info "  removed licence:  $lic" }
+      if ((Get-ChildItem -Force $libdir -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+        Remove-Item -Force $libdir; Write-Info "  removed dir:      $libdir"
+      }
+    } else {
+      Write-Info "  (library from manifest not found on disk; removing manifest only)"
+    }
+    Remove-Item -Force $manifest
+    Write-Info "  removed manifest: $manifest"
+  } catch {
+    Fail "could not remove $name (system install? re-run in an elevated shell): $_"
+  }
+  # We intentionally leave the machine ADBC_DRIVER_PATH env var (set by a -Scope
+  # system install) in place; it is harmless if the dir is empty.
+  Write-Info ""
+  Write-Info "Uninstalled $name."
+}
+
 # ---- main --------------------------------------------------------------------
 if ($Help) { Show-Usage; return }
+if ($Installed) { Show-Installed; return }
+if ($Uninstall) {
+  if (-not $Driver) { Fail "-Uninstall needs a driver name (see -Installed)" }
+  Uninstall-Driver $Driver; return
+}
 if ($List) { Show-List; return }
 if (-not $Driver) { Show-List; return }
 Install-Driver $Driver

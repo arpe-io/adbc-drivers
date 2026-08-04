@@ -95,22 +95,28 @@ Arpeio ADBC driver installer
 Usage:
   install.sh <driver> [--version <X.Y.Z|latest>] [--user|--system]
              [--license <path>] [--prefix <dir>]
+  install.sh --installed [--user|--system]
+  install.sh --uninstall <driver> [--user|--system]
   install.sh --list
   install.sh --help
 
 Drivers: ${ALL_DRIVERS}
 
 Options:
-  --version   Driver version to install (default: latest).
-  --user      Install for the current user (default): lib under
-              ~/.local/lib/arpeio-adbc, manifest in the user ADBC dir.
-  --system    Install system-wide (/opt/arpeio-adbc + system ADBC dir; needs
-              write permission — run with sudo).
-  --license   Path to your Arpeio licence (.lic); copied next to the driver as
-              arpeio_adbc.lic. Without it, set ARPEIO_ADBC_LICENCE_FILE or place
-              arpeio_adbc.lic next to the library yourself before use.
-  --prefix    Override the library install directory.
-  --list      List the available drivers and their latest published versions.
+  --version    Driver version to install (default: latest).
+  --user       Install for the current user (default): lib under
+               ~/.local/lib/arpeio-adbc, manifest in the user ADBC dir.
+  --system     Install system-wide (/opt/arpeio-adbc + system ADBC dir; needs
+               write permission — run with sudo).
+  --license    Path to your Arpeio licence (.lic); copied next to the driver as
+               arpeio_adbc.lic. Without it, set ARPEIO_ADBC_LICENCE_FILE or place
+               arpeio_adbc.lic next to the library yourself before use.
+  --prefix     Override the library install directory.
+  --installed  List the drivers installed on this machine (both scopes by
+               default; narrow with --user/--system).
+  --uninstall  Remove a driver: its library, copied licence, and manifest.
+               Acts on the user scope by default; --system for a machine install.
+  --list       List the available drivers and their latest published versions.
 
 The downloaded binary is license-gated: it requires a valid Arpeio licence at
 runtime. There is no trial build.
@@ -151,6 +157,14 @@ entrypoint = "AdbcDriverInit"
 [Driver.shared]
 ${MANIFEST_KEY} = "${_libpath}"
 EOF
+}
+
+# Read fields back out of an installed manifest (source of truth for uninstall).
+manifest_version_of() { # <manifest> -> driver version (first `version = ` line)
+  grep -E '^version = ' "$1" | sed -E 's/^version = "([^"]+)".*/\1/' | head -n1
+}
+manifest_libpath_of() { # <manifest> -> the shared library path
+  awk -F' = ' '/^\[Driver\.shared\]/{f=1;next} f && / = /{gsub(/"/,"",$2);print $2;exit}' "$1"
 }
 
 # ---- commands ----------------------------------------------------------------
@@ -245,6 +259,65 @@ do_install() {
   info "  dbapi.connect(driver=\"$name\", db_kwargs={...})"
 }
 
+# List drivers actually installed on this machine, scanning both the user and
+# system locations (or just one if --user/--system was given). The manifest is
+# the source of truth; version + library path are read back out of it.
+do_installed() {
+  detect_platform
+  if [ "$SCOPE_SET" = 1 ]; then _scopes=$SCOPE; else _scopes="user system"; fi
+  _found=0
+  info "Installed Arpeio ADBC drivers:"
+  info ""
+  for d in $ALL_DRIVERS; do
+    for _scope in $_scopes; do
+      if [ "$_scope" = user ]; then _mdir=$(user_manifest_dir); else _mdir=$(system_manifest_dir); fi
+      _m="$_mdir/$d.toml"
+      [ -f "$_m" ] || continue
+      _found=1
+      _ver=$(manifest_version_of "$_m"); [ -n "$_ver" ] || _ver="?"
+      _lp=$(manifest_libpath_of "$_m")
+      if [ -n "$_lp" ] && [ -f "$(dirname "$_lp")/arpeio_adbc.lic" ]; then _lic=yes; else _lic=no; fi
+      printf '  %-10s %-22s %-9s %-6s licence:%-4s %s\n' \
+        "$d" "$(driver_field "$d" dbms)" "$_ver" "$_scope" "$_lic" "$_lp" >&2
+    done
+  done
+  if [ "$_found" = 0 ]; then
+    info "  (none installed)"
+    info ""
+    info "Install one with:  install.sh <driver> --license <your.lic>"
+  fi
+}
+
+# Remove a driver from a single scope (default user; --system for the machine
+# install), matching how install resolves scope. Removes the library, the copied
+# licence, the now-empty per-driver dir, and the manifest.
+do_uninstall() {
+  name=$1
+  driver_field "$name" lib >/dev/null 2>&1 || err "unknown driver '$name' (see --list)"
+  detect_platform
+  if [ "$SCOPE" = system ]; then mandir=$(system_manifest_dir); _other="--user"; else mandir=$(user_manifest_dir); _other="--system"; fi
+  manifest="$mandir/$name.toml"
+  [ -f "$manifest" ] || err "'$name' is not installed at the $SCOPE level (try $_other?)"
+
+  info "Uninstalling ${name} (${SCOPE})"
+  libpath=$(manifest_libpath_of "$manifest")
+  if [ -n "$libpath" ] && [ -e "$libpath" ]; then
+    libdir=$(dirname "$libpath")
+    rm -f "$libpath" || err "cannot remove $libpath (system install? re-run with sudo)"
+    info "  removed library:  $libpath"
+    if [ -f "$libdir/arpeio_adbc.lic" ]; then
+      rm -f "$libdir/arpeio_adbc.lic" && info "  removed licence:  $libdir/arpeio_adbc.lic"
+    fi
+    if rmdir "$libdir" 2>/dev/null; then info "  removed dir:      $libdir"; fi
+  else
+    info "  (library from manifest not found on disk; removing manifest only)"
+  fi
+  rm -f "$manifest" || err "cannot remove $manifest (system install? re-run with sudo)"
+  info "  removed manifest: $manifest"
+  info ""
+  info "Uninstalled ${name}."
+}
+
 # Allow `. install.sh` to load the functions without running main (for tests).
 if [ "${ARPEIO_ADBC_INSTALL_SOURCE:-}" = 1 ]; then return 0 2>/dev/null || exit 0; fi
 
@@ -252,18 +325,21 @@ if [ "${ARPEIO_ADBC_INSTALL_SOURCE:-}" = 1 ]; then return 0 2>/dev/null || exit 
 DRIVER=""
 VERSION="latest"
 SCOPE="user"
+SCOPE_SET=0
 LICENSE=""
 PREFIX=""
-LIST=0
+ACTION=install
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --list) LIST=1 ;;
+    --list) ACTION=list ;;
+    --installed) ACTION=installed ;;
+    --uninstall) ACTION=uninstall ;;
     --help|-h) usage; exit 0 ;;
     --version) shift; VERSION="${1:?--version needs a value}" ;;
     --version=*) VERSION="${1#*=}" ;;
-    --user) SCOPE="user" ;;
-    --system) SCOPE="system" ;;
+    --user) SCOPE="user"; SCOPE_SET=1 ;;
+    --system) SCOPE="system"; SCOPE_SET=1 ;;
     --license) shift; LICENSE="${1:?--license needs a path}" ;;
     --license=*) LICENSE="${1#*=}" ;;
     --prefix) shift; PREFIX="${1:?--prefix needs a dir}" ;;
@@ -274,8 +350,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-have curl || have wget || err "need curl or wget"
-
-if [ "$LIST" = 1 ]; then do_list; exit 0; fi
-[ -n "$DRIVER" ] || { usage; exit 2; }
-do_install "$DRIVER"
+case "$ACTION" in
+  list)      have curl || have wget || err "need curl or wget"; do_list ;;
+  installed) do_installed ;;
+  uninstall) [ -n "$DRIVER" ] || err "--uninstall needs a driver name (see --installed)"
+             do_uninstall "$DRIVER" ;;
+  install)   have curl || have wget || err "need curl or wget"
+             [ -n "$DRIVER" ] || { usage; exit 2; }
+             do_install "$DRIVER" ;;
+esac

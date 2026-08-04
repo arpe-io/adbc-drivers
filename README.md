@@ -55,6 +55,28 @@ curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.s
 4. If you pass `--license <path>`, copies it next to the library as
    `arpeio_adbc.lic` (where the driver looks for it by default).
 
+## Listing and removing
+
+See what's installed on this machine (scans both the user and system locations,
+showing each driver's version, scope, library path, and whether a licence is in
+place):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
+  | sh -s -- --installed
+```
+
+Remove a driver — its library, the copied licence, and its manifest:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
+  | sh -s -- --uninstall arrowtds
+```
+
+Uninstall acts on your per-user install by default; add `--system` (with `sudo`)
+to remove a machine-wide one. On Windows, use `-Installed` and
+`-Uninstall arrowtds` (an elevated shell for `-Scope system`).
+
 ## Options
 
 | `install.sh` | `install.ps1` | Meaning |
@@ -64,7 +86,9 @@ curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.s
 | `--system` | `-Scope system` | Machine-wide install (needs sudo/admin). |
 | `--license <path>` | `-License <path>` | Install your `.lic` next to the driver. |
 | `--prefix <dir>` | `-Prefix <dir>` | Override the library install directory. |
-| `--list` | `-List` | List drivers + latest published versions. |
+| `--list` | `-List` | List *available* drivers + latest published versions. |
+| `--installed` | `-Installed` | List the drivers *installed* on this machine. |
+| `--uninstall <driver>` | `-Uninstall <driver>` | Remove an installed driver. |
 
 ## Supplying the licence
 
