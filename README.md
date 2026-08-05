@@ -162,6 +162,11 @@ Contributions to the installers, registry, and docs are welcome. Please read
 [CONTRIBUTING.md](CONTRIBUTING.md) — in short: fork, branch off `develop`, run the
 linters (`shellcheck` / `PSScriptAnalyzer`), and open a PR into `develop`.
 
+The conventions shared by every driver in the family — load-by-name manifest,
+environment variables, licence resolution, option namespaces, and the per-database
+connection-URI grammars — are documented in
+[DRIVER_FAMILY_CONVENTION.md](DRIVER_FAMILY_CONVENTION.md).
+
 ## Licence
 
 The contents of this repository (installers, registry, docs) are released under
