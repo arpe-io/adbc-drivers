@@ -228,12 +228,20 @@ function Install-Driver {
   $tmp = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ("arpeio-adbc-" + [guid]::NewGuid()))
   try {
     $dest = Join-Path $tmp $asset
-    Invoke-WebRequest -Uri $url -OutFile $dest -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
 
     # Verify checksum against SHA256SUMS if present.
     try {
-      $sums = (Invoke-WebRequest -Uri $sumsUrl -Headers @{ "User-Agent" = "arpeio-adbc-installer" }).Content
-      $want = ($sums -split "`n" | Where-Object { $_ -match [regex]::Escape($asset) + '\s*$' } |
+      # -UseBasicParsing is required on Windows PowerShell 5.1: without it,
+      # Invoke-WebRequest routes the body through Internet Explorer's DOM parser
+      # (the "risque d'execution de script" warning), which mangles the plain-text
+      # SHA256SUMS so no line matches and $want comes back empty.
+      $sums = (Invoke-WebRequest -Uri $sumsUrl -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }).Content
+      # Match on the exact filename field (last whitespace-delimited token) so the
+      # parse is immune to CRLF vs LF and trailing whitespace.
+      $want = ($sums -split "`r?`n" |
+               ForEach-Object { $_.Trim() } |
+               Where-Object { ($_ -split '\s+')[-1] -eq $asset } |
                ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
       if (-not $want) { Fail "SHA256SUMS has no entry for $asset" }
       $got = (Get-FileHash -Algorithm SHA256 -Path $dest).Hash.ToLower()
