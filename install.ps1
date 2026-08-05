@@ -232,11 +232,15 @@ function Install-Driver {
 
     # Verify checksum against SHA256SUMS if present.
     try {
-      # -UseBasicParsing is required on Windows PowerShell 5.1: without it,
-      # Invoke-WebRequest routes the body through Internet Explorer's DOM parser
-      # (the "risque d'execution de script" warning), which mangles the plain-text
-      # SHA256SUMS so no line matches and $want comes back empty.
-      $sums = (Invoke-WebRequest -Uri $sumsUrl -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }).Content
+      # Download to a file and read it back as text. On Windows PowerShell 5.1,
+      # Invoke-WebRequest returns .Content as a byte[] (not a string) for
+      # application/octet-stream responses like SHA256SUMS, so an in-memory
+      # `.Content -split` splits each byte individually and never matches.
+      # -OutFile + Get-Content -Raw always yields text; -UseBasicParsing also
+      # avoids the IE DOM parser (the "risque d'execution de script" prompt) on 5.1.
+      $sumsFile = Join-Path $tmp "SHA256SUMS"
+      Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+      $sums = Get-Content -Raw -Path $sumsFile
       # Match on the exact filename field (last whitespace-delimited token) so the
       # parse is immune to CRLF vs LF and trailing whitespace.
       $want = ($sums -split "`r?`n" |
