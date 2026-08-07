@@ -10,10 +10,19 @@ drivers. Each driver is a pure-native, high-performance ADBC driver that returns
 Apache Arrow directly — install it with a single command, then load it by name
 from any ADBC client.
 
-| Driver | Database | Load name |
-|---|---|---|
-| **ArrowTDS** | Microsoft SQL Server (incl. Azure SQL, Fabric) | `arrowtds` |
-| **ArrowFEBE** | PostgreSQL | `arrowfebe` |
+### Which driver do I need?
+
+| Your database | Driver | Load name | Status |
+|---|---|---|---|
+| Microsoft SQL Server (incl. Azure SQL, Fabric) | [ArrowTDS](https://github.com/aetperf/ArrowTDS) | `arrowtds` | ✅ Published |
+| PostgreSQL | [ArrowFEBE](https://github.com/aetperf/ArrowFEBE) | `arrowfebe` | ✅ Published |
+| Oracle | [ArrowTTC](https://github.com/aetperf/ArrowTTC) | `arrowttc` | 🚧 Coming soon |
+| IBM Db2 | [ArrowDRDA](https://github.com/aetperf/ArrowDRDA) | `arrowdrda` | 🚧 Coming soon |
+
+Only the drivers marked **Published** are downloadable today; run
+`… install.sh --list` for the authoritative, always-current list. Each driver's
+own repository (linked above) has its connection guide, data-type mapping, and
+compatibility matrix.
 
 The driver *binaries* are published here as public GitHub Releases and are free
 to download. They are **licence-gated**: a driver requires a valid Arpeio licence
@@ -149,6 +158,34 @@ The installer writes `<driver>.toml` where the ADBC driver manager searches:
 (macOS) · `%LOCALAPPDATA%\ADBC\Drivers` (Windows), or the system equivalents with
 `--system`. If your client can't find it, point `ADBC_DRIVER_PATH` at the
 directory the installer reports.
+
+## Troubleshooting
+
+**Checksum verification failed.** The download did not match the release
+`SHA256SUMS` — usually a truncated download or a proxy rewriting the response.
+Re-run the installer; if it persists, download the release asset manually from the
+[Releases](https://github.com/arpe-io/adbc-drivers/releases) page and compare with
+`sha256sum`.
+
+**Client can't find the driver / "driver not found".** The ADBC driver manager did
+not see the manifest. Confirm the install with `… install.sh --installed`, then
+point `ADBC_DRIVER_PATH` at the directory the installer reports (see
+[Manifest search paths](#manifest-search-paths-advanced)). Make sure the client
+loads by the exact **load name** (`arrowtds`, `arrowfebe`, …).
+
+**Connection fails with an `ARROW_LIC_*` error.** The driver loaded but found no
+valid licence at runtime. Install one next to the driver (`--license`), or set
+`ARPEIO_ADBC_LICENCE_FILE` / `ARPEIO_ADBC_LICENCE` — see
+[Supplying the licence](#supplying-the-licence). Each driver repo's `LICENSING.md`
+has the full resolution order.
+
+**Permission denied during `--system` install.** System-wide installs write to
+`/opt/arpeio-adbc` and the system ADBC directory — run with `sudo` (Unix) or an
+elevated shell (`-Scope system` on Windows). Or drop `--system` for a per-user
+install that needs no admin.
+
+**`macOS is not supported yet`.** macOS binaries are staged but not yet published;
+use Linux or Windows for now.
 
 ## Building from source
 
