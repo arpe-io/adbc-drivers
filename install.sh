@@ -51,6 +51,22 @@ sha256_of() {
   else err "need sha256sum or shasum to verify the download"; fi
 }
 
+# Verify $tmp/$asset against the release SHA256SUMS (best-effort): a missing
+# SHA256SUMS is only a warning, but a checksum mismatch — or a SHA256SUMS with no
+# entry for the asset — is fatal.
+verify_checksum() { # <sums_url> <asset> <tmp>
+  _sums_url=$1; _asset=$2; _tmp=$3
+  if download "$_sums_url" "$_tmp/SHA256SUMS" 2>/dev/null; then
+    _want=$(grep " $_asset\$" "$_tmp/SHA256SUMS" | awk '{print $1}' | head -n1)
+    [ -n "$_want" ] || err "SHA256SUMS has no entry for $_asset"
+    _got=$(sha256_of "$_tmp/$_asset")
+    [ "$_want" = "$_got" ] || err "checksum mismatch for $_asset (expected $_want, got $_got)"
+    info "  checksum OK"
+  else
+    info "  warning: no SHA256SUMS in the release — skipping checksum verification"
+  fi
+}
+
 # Detect OS + the two arch spellings we need:
 #   ASSET_ARCH  (x64/arm64)   — used in the release asset filename
 #   MANIFEST_KEY (linux_amd64…) — the ADBC driver-manager platform tuple
@@ -102,6 +118,7 @@ Arpeio ADBC driver installer
 Usage:
   install.sh <driver> [--version <X.Y.Z|latest>] [--user|--system]
              [--license <path> | --license-content <text>] [--prefix <dir>]
+  install.sh <driver> --download-only [--version <X.Y.Z|latest>] [--dir <path>]
   install.sh --installed [--user|--system]
   install.sh --uninstall <driver> [--user|--system]
   install.sh --list
@@ -121,6 +138,11 @@ Options:
   --license-content  The licence text itself; written verbatim to arpeio_adbc.lic
                      (handy for CI — note it is visible in the process list).
   --prefix           Override the library install directory.
+  --download-only    Just download the driver binary + a ready-to-use manifest into
+                     a plain directory (see --dir); no licence is copied, no system
+                     dir is touched. Point ADBC_DRIVER_PATH at the dir and supply
+                     the licence yourself.
+  --dir              Destination directory for --download-only (default: current dir).
   --installed        List the drivers installed on this machine (both scopes by
                      default; narrow with --user/--system).
   --uninstall        Remove a driver: its library, copied licence, and manifest.
@@ -268,17 +290,7 @@ do_install() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/arpeio-adbc.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT INT TERM
   download "$url" "$tmp/$asset" || err "download failed (is ${name} ${ver} published for ${OS_ASSET}-${ASSET_ARCH}?)"
-
-  # Verify checksum against the release SHA256SUMS.
-  if download "$sums_url" "$tmp/SHA256SUMS" 2>/dev/null; then
-    want=$(grep " $asset\$" "$tmp/SHA256SUMS" | awk '{print $1}' | head -n1)
-    [ -n "$want" ] || err "SHA256SUMS has no entry for $asset"
-    got=$(sha256_of "$tmp/$asset")
-    [ "$want" = "$got" ] || err "checksum mismatch for $asset (expected $want, got $got)"
-    info "  checksum OK"
-  else
-    info "  warning: no SHA256SUMS in the release — skipping checksum verification"
-  fi
+  verify_checksum "$sums_url" "$asset" "$tmp"
 
   mkdir -p "$libdir" "$mandir" || err "cannot create install dirs (try --user, or sudo for --system)"
   libpath="$libdir/$asset"
@@ -310,6 +322,64 @@ do_install() {
   info "Load it by name, e.g. in Python:"
   info "  import adbc_driver_manager.dbapi as dbapi"
   info "  dbapi.connect(driver=\"$name\", db_kwargs={...})"
+}
+
+# Download the driver binary (and a ready-to-use manifest) into a plain directory,
+# without performing a managed install: no licence is copied, no system directory
+# is touched, and no env var is set. Destination is --dir (default: current dir).
+# The user wires it up themselves (point ADBC_DRIVER_PATH at the dir) and supplies
+# the licence on their own.
+do_download() {
+  name=$1
+  driver_field "$name" lib >/dev/null 2>&1 || err "unknown driver '$name' (see --list)"
+  detect_platform
+
+  # Resolve version -> tag (same as do_install).
+  if [ "$VERSION" = latest ]; then
+    tag=$(resolve_latest "$name" || true)
+    [ -n "${tag:-}" ] || err "no published release for '$name' yet"
+  else
+    tag="${name}-v${VERSION#v}"
+  fi
+  ver="${tag#"$name"-v}"
+
+  lib=$(driver_field "$name" lib)
+  asset="${LIB_PREFIX}${lib}-${OS_ASSET}-${ASSET_ARCH}.${LIB_EXT}"
+  url="${DL}/${tag}/${asset}"
+  sums_url="${DL}/${tag}/SHA256SUMS"
+
+  # Destination dir (default: current dir), absolutised so the manifest's library
+  # path works regardless of the caller's working directory at load time.
+  destdir="${DIR:-.}"
+  mkdir -p "$destdir" || err "cannot create directory: $destdir"
+  destdir=$(cd "$destdir" && pwd)
+
+  info "Downloading ${name} ${ver} (${MANIFEST_KEY})"
+  info "  from ${url}"
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/arpeio-adbc.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT INT TERM
+  download "$url" "$tmp/$asset" || err "download failed (is ${name} ${ver} published for ${OS_ASSET}-${ASSET_ARCH}?)"
+  verify_checksum "$sums_url" "$asset" "$tmp"
+
+  libpath="$destdir/$asset"
+  mv "$tmp/$asset" "$libpath"
+  chmod 0755 "$libpath"
+
+  manifest="$destdir/$name.toml"
+  write_manifest "$manifest" "$name" "$ver" "$libpath"
+
+  info ""
+  info "Downloaded:"
+  info "  library:  $libpath"
+  info "  manifest: $manifest"
+  info ""
+  info "To load it by name, point the ADBC driver manager at this directory:"
+  info "  export ADBC_DRIVER_PATH=$destdir"
+  info ""
+  info "  This driver is licence-gated; supply a licence yourself: place your"
+  info "  arpeio_adbc.lic next to the library, or set ARPEIO_ADBC_LICENCE_FILE /"
+  info "  ARPEIO_ADBC_LICENCE at runtime."
 }
 
 # List drivers actually installed on this machine, scanning both the user and
@@ -382,6 +452,7 @@ SCOPE_SET=0
 LICENSE=""
 LICENSE_CONTENT=""
 PREFIX=""
+DIR=""
 ACTION=install
 
 while [ $# -gt 0 ]; do
@@ -390,6 +461,9 @@ while [ $# -gt 0 ]; do
     --versions) ACTION=versions ;;
     --installed) ACTION=installed ;;
     --uninstall) ACTION=uninstall ;;
+    --download-only) ACTION=download ;;
+    --dir) shift; DIR="${1:?--dir needs a path}" ;;
+    --dir=*) DIR="${1#*=}" ;;
     --help|-h) usage; exit 0 ;;
     --version) shift; VERSION="${1:?--version needs a value}" ;;
     --version=*) VERSION="${1#*=}" ;;
@@ -416,4 +490,7 @@ case "$ACTION" in
   install)   have curl || have wget || err "need curl or wget"
              [ -n "$DRIVER" ] || { usage; exit 2; }
              do_install "$DRIVER" ;;
+  download)  have curl || have wget || err "need curl or wget"
+             [ -n "$DRIVER" ] || err "--download-only needs a driver name (see --list)"
+             do_download "$DRIVER" ;;
 esac

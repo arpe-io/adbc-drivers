@@ -24,6 +24,8 @@ param(
   [string] $License,
   [string] $LicenseContent,
   [string] $Prefix,
+  [string] $Dir,
+  [switch] $DownloadOnly,
   [switch] $List,
   [switch] $Versions,
   [switch] $Installed,
@@ -145,6 +147,7 @@ Arpeio ADBC driver installer (Windows)
 Usage:
   install.ps1 <driver> [-Version <X.Y.Z|latest>] [-Scope user|system]
               [-License <path> | -LicenseContent <text>] [-Prefix <dir>]
+  install.ps1 <driver> -DownloadOnly [-Version <X.Y.Z|latest>] [-Dir <path>]
   install.ps1 -Installed [-Scope user|system]
   install.ps1 -Uninstall <driver> [-Scope user|system]
   install.ps1 -List
@@ -154,6 +157,11 @@ Drivers: $($Registry.Keys -join ', ')
 
   -License         Path to your Arpeio licence (.lic); copied next to the driver.
   -LicenseContent  The licence text itself; written verbatim to arpeio_adbc.lic.
+  -DownloadOnly    Just download the driver binary + a ready-to-use manifest into a
+                   plain directory (see -Dir); no licence is copied, no system dir is
+                   touched. Point ADBC_DRIVER_PATH at the dir and supply the licence
+                   yourself.
+  -Dir             Destination directory for -DownloadOnly (default: current dir).
   -Versions        List every published version of each driver (or one driver,
                    if named), newest first.
   -Installed       List the drivers installed on this machine (both scopes by
@@ -193,6 +201,36 @@ function Install-License {
   }
 }
 
+# Verify $dest against the release SHA256SUMS (best-effort): a missing SHA256SUMS
+# is only a warning, but a checksum mismatch (or a SHA256SUMS with no entry for
+# the asset) is fatal.
+function Test-Checksum {
+  param([string]$sumsUrl, [string]$asset, [string]$tmp, [string]$dest)
+  try {
+    # Download to a file and read it back as text. On Windows PowerShell 5.1,
+    # Invoke-WebRequest returns .Content as a byte[] (not a string) for
+    # application/octet-stream responses like SHA256SUMS, so an in-memory
+    # `.Content -split` splits each byte individually and never matches.
+    # -OutFile + Get-Content -Raw always yields text; -UseBasicParsing also
+    # avoids the IE DOM parser (the "risque d'execution de script" prompt) on 5.1.
+    $sumsFile = Join-Path $tmp "SHA256SUMS"
+    Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+    $sums = Get-Content -Raw -Path $sumsFile
+    # Match on the exact filename field (last whitespace-delimited token) so the
+    # parse is immune to CRLF vs LF and trailing whitespace.
+    $want = ($sums -split "`r?`n" |
+             ForEach-Object { $_.Trim() } |
+             Where-Object { ($_ -split '\s+')[-1] -eq $asset } |
+             ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
+    if (-not $want) { Fail "SHA256SUMS has no entry for $asset" }
+    $got = (Get-FileHash -Algorithm SHA256 -Path $dest).Hash.ToLower()
+    if ($want.ToLower() -ne $got) { Fail "checksum mismatch for $asset" }
+    Write-Info "  checksum OK"
+  } catch [System.Net.WebException] {
+    Write-Info "  warning: no SHA256SUMS in the release - skipping checksum verification"
+  }
+}
+
 function Install-Driver {
   param([string]$name)
   if (-not $Registry.Contains($name)) { Fail "unknown driver '$name' (try -List)" }
@@ -229,31 +267,7 @@ function Install-Driver {
   try {
     $dest = Join-Path $tmp $asset
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-
-    # Verify checksum against SHA256SUMS if present.
-    try {
-      # Download to a file and read it back as text. On Windows PowerShell 5.1,
-      # Invoke-WebRequest returns .Content as a byte[] (not a string) for
-      # application/octet-stream responses like SHA256SUMS, so an in-memory
-      # `.Content -split` splits each byte individually and never matches.
-      # -OutFile + Get-Content -Raw always yields text; -UseBasicParsing also
-      # avoids the IE DOM parser (the "risque d'execution de script" prompt) on 5.1.
-      $sumsFile = Join-Path $tmp "SHA256SUMS"
-      Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-      $sums = Get-Content -Raw -Path $sumsFile
-      # Match on the exact filename field (last whitespace-delimited token) so the
-      # parse is immune to CRLF vs LF and trailing whitespace.
-      $want = ($sums -split "`r?`n" |
-               ForEach-Object { $_.Trim() } |
-               Where-Object { ($_ -split '\s+')[-1] -eq $asset } |
-               ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
-      if (-not $want) { Fail "SHA256SUMS has no entry for $asset" }
-      $got = (Get-FileHash -Algorithm SHA256 -Path $dest).Hash.ToLower()
-      if ($want.ToLower() -ne $got) { Fail "checksum mismatch for $asset" }
-      Write-Info "  checksum OK"
-    } catch [System.Net.WebException] {
-      Write-Info "  warning: no SHA256SUMS in the release - skipping checksum verification"
-    }
+    Test-Checksum $sumsUrl $asset $tmp $dest
 
     New-Item -ItemType Directory -Force -Path $libdir, $mandir | Out-Null
     $libpath = Join-Path $libdir $asset
@@ -303,6 +317,85 @@ $manifestKey = "$tomlPath"
     Write-Info "Load it by name, e.g. in Python:"
     Write-Info "  import adbc_driver_manager.dbapi as dbapi"
     Write-Info "  dbapi.connect(driver=`"$name`", db_kwargs={...})"
+  } finally {
+    Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+  }
+}
+
+# Download the driver binary (and a ready-to-use manifest) into a plain directory,
+# without a managed install: no licence is copied, no system dir is touched, and no
+# env var is set. Destination is -Dir (default: current dir). The user wires it up
+# themselves (point ADBC_DRIVER_PATH at the dir) and supplies the licence on their own.
+function Save-Driver {
+  param([string]$name)
+  if (-not $Registry.Contains($name)) { Fail "unknown driver '$name' (try -List)" }
+  $arch = Get-PlatformArch
+  $lib  = $Registry[$name].lib
+
+  if ($Version -eq "latest") {
+    $tag = Resolve-LatestTag $name
+    if (-not $tag) { Fail "no published release for '$name' yet" }
+  } else {
+    $v = $Version -replace '^v', ''
+    $tag = "$name-v$v"
+  }
+  $ver = $tag.Substring("$name-v".Length)
+
+  $asset   = "$lib-win-$($arch.asset).dll"
+  $url     = "$Dl/$tag/$asset"
+  $sumsUrl = "$Dl/$tag/SHA256SUMS"
+  $manifestKey = "windows_$($arch.manifest)"
+
+  # Destination dir (default: current dir), absolutised so the manifest's library
+  # path works regardless of the caller's working directory at load time.
+  $destdir = if ($Dir) { $Dir } else { (Get-Location).Path }
+  New-Item -ItemType Directory -Force -Path $destdir | Out-Null
+  $destdir = (Resolve-Path $destdir).Path
+
+  Write-Info "Downloading $name $ver ($manifestKey)"
+  Write-Info "  from $url"
+
+  $tmp = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ("arpeio-adbc-" + [guid]::NewGuid()))
+  try {
+    $dest = Join-Path $tmp $asset
+    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+    Test-Checksum $sumsUrl $asset $tmp $dest
+
+    $libpath = Join-Path $destdir $asset
+    Move-Item -Force $dest $libpath
+
+    # The manifest path must use doubled backslashes to be a valid TOML string.
+    $tomlPath = $libpath -replace '\\', '\\'
+    $manifest = @"
+# Generated by the Arpeio ADBC installer - do not edit by hand.
+manifest_version = 1
+name = "$($Registry[$name].display) ADBC Driver"
+version = "$ver"
+publisher = "Arpeio"
+
+[ADBC]
+version = "1.1.0"
+
+[Driver]
+entrypoint = "AdbcDriverInit"
+
+[Driver.shared]
+$manifestKey = "$tomlPath"
+"@
+    $manifestFile = Join-Path $destdir "$name.toml"
+    Set-Content -Path $manifestFile -Value $manifest -Encoding UTF8
+
+    Write-Info ""
+    Write-Info "Downloaded:"
+    Write-Info "  library:  $libpath"
+    Write-Info "  manifest: $manifestFile"
+    Write-Info ""
+    Write-Info "To load it by name, point the ADBC driver manager at this directory:"
+    Write-Info "  setx ADBC_DRIVER_PATH `"$destdir`""
+    Write-Info ""
+    Write-Info "  This driver is licence-gated; supply a licence yourself: place your"
+    Write-Info "  arpeio_adbc.lic next to the library, or set ARPEIO_ADBC_LICENCE_FILE /"
+    Write-Info "  ARPEIO_ADBC_LICENCE at runtime."
   } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
   }
@@ -385,5 +478,9 @@ if ($Uninstall) {
 }
 if ($List) { Show-List; return }
 if ($Versions) { Show-Version $Driver; return }
+if ($DownloadOnly) {
+  if (-not $Driver) { Fail "-DownloadOnly needs a driver name (see -List)" }
+  Save-Driver $Driver; return
+}
 if (-not $Driver) { Show-List; return }
 Install-Driver $Driver

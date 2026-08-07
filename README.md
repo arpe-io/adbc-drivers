@@ -76,6 +76,35 @@ curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.s
 4. If you pass `--license <path>`, copies it next to the library as
    `arpeio_adbc.lic` (where the driver looks for it by default).
 
+## Download only
+
+If you'd rather manage the deployment yourself — a custom path, a container image,
+an air-gapped copy, your own licence handling — use `--download-only` /
+`-DownloadOnly`. It downloads and checksum-verifies the driver binary and writes a
+ready-to-use `<driver>.toml` manifest **next to it**, into the directory you choose
+with `--dir` / `-Dir` (default: the current directory). Nothing else is touched: no
+system directory, no licence file, no environment variable.
+
+**Linux / macOS:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
+  | sh -s -- arrowtds --download-only --dir ./drivers
+```
+
+**Windows (PowerShell):**
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.ps1))) `
+  arrowtds -DownloadOnly -Dir .\drivers
+```
+
+To load the driver by name afterwards, point the ADBC driver manager at that
+directory (`export ADBC_DRIVER_PATH=./drivers`, or `setx ADBC_DRIVER_PATH` on
+Windows), and supply a licence yourself — place your `arpeio_adbc.lic` next to the
+library, or set `ARPEIO_ADBC_LICENCE_FILE` / `ARPEIO_ADBC_LICENCE` at runtime (see
+[Supplying the licence](#supplying-the-licence)).
+
 ## Listing and removing
 
 See what's installed on this machine (scans both the user and system locations,
@@ -108,6 +137,8 @@ to remove a machine-wide one. On Windows, use `-Installed` and
 | `--license <path>` | `-License <path>` | Install your `.lic` file next to the driver. |
 | `--license-content <text>` | `-LicenseContent <text>` | Install the licence from inline text. |
 | `--prefix <dir>` | `-Prefix <dir>` | Override the library install directory. |
+| `--download-only` | `-DownloadOnly` | Just download the binary + manifest into a dir (see [Download only](#download-only)); no managed install. |
+| `--dir <dir>` | `-Dir <dir>` | Destination directory for `--download-only` (default: current dir). |
 | `--list` | `-List` | List *available* drivers + latest published versions. |
 | `--versions [<driver>]` | `-Versions [<driver>]` | List *every* published version (all drivers, or one). |
 | `--installed` | `-Installed` | List the drivers *installed* on this machine. |
