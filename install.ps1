@@ -44,6 +44,7 @@ $Dl  = "https://github.com/$DistRepo/releases/download"
 $Registry = [ordered]@{
   arrowtds  = @{ display = "ArrowTDS";  dbms = "Microsoft SQL Server"; lib = "arrowtds_adbc_driver"  }
   arrowfebe = @{ display = "ArrowFEBE"; dbms = "PostgreSQL";           lib = "arrowfebe_adbc_driver" }
+  arrowttc  = @{ display = "ArrowTTC";  dbms = "Oracle";               lib = "arrowttc_adbc_driver"  }
 }
 
 function Write-Info { param([string]$m) Write-Host $m }

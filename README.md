@@ -16,7 +16,7 @@ from any ADBC client.
 |---|---|---|---|
 | Microsoft SQL Server (incl. Azure SQL, Fabric) | [ArrowTDS](https://github.com/aetperf/ArrowTDS) | `arrowtds` | ✅ Published |
 | PostgreSQL | [ArrowFEBE](https://github.com/aetperf/ArrowFEBE) | `arrowfebe` | ✅ Published |
-| Oracle | [ArrowTTC](https://github.com/aetperf/ArrowTTC) | `arrowttc` | 🚧 Coming soon |
+| Oracle | [ArrowTTC](https://github.com/aetperf/ArrowTTC) | `arrowttc` | ✅ Published |
 | IBM Db2 | [ArrowDRDA](https://github.com/aetperf/ArrowDRDA) | `arrowdrda` | 🚧 Coming soon |
 
 Only the drivers marked **Published** are downloadable today; run

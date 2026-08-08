@@ -23,6 +23,7 @@ driver_field() {
   case "$1" in
     arrowtds)  _lib=arrowtds_adbc_driver;  _display=ArrowTDS;  _dbms="Microsoft SQL Server" ;;
     arrowfebe) _lib=arrowfebe_adbc_driver; _display=ArrowFEBE; _dbms="PostgreSQL" ;;
+    arrowttc)  _lib=arrowttc_adbc_driver;  _display=ArrowTTC;  _dbms="Oracle" ;;
     *) return 1 ;;
   esac
   case "$2" in
@@ -31,7 +32,7 @@ driver_field() {
     dbms) printf '%s\n' "$_dbms" ;;
   esac
 }
-ALL_DRIVERS="arrowtds arrowfebe"
+ALL_DRIVERS="arrowtds arrowfebe arrowttc"
 
 # ---- helpers -----------------------------------------------------------------
 info() { printf '%s\n' "$*" >&2; }
