@@ -14,10 +14,10 @@ from any ADBC client.
 
 | Your database | Driver | Load name | Status |
 |---|---|---|---|
-| Microsoft SQL Server (incl. Azure SQL, Fabric) | [ArrowTDS](https://github.com/aetperf/ArrowTDS) | `arrowtds` | ✅ Published |
-| PostgreSQL | [ArrowFEBE](https://github.com/aetperf/ArrowFEBE) | `arrowfebe` | ✅ Published |
-| Oracle | [ArrowTTC](https://github.com/aetperf/ArrowTTC) | `arrowttc` | ✅ Published |
-| IBM Db2 | [ArrowDRDA](https://github.com/aetperf/ArrowDRDA) | `arrowdrda` | 🚧 Coming soon |
+| Microsoft SQL Server (incl. Azure SQL, Fabric) | ArrowTDS | `arrowtds` | ✅ Published |
+| PostgreSQL | ArrowFEBE | `arrowfebe` | ✅ Published |
+| Oracle | ArrowTTC | `arrowttc` | ✅ Published |
+| IBM Db2 | ArrowDRDA | `arrowdrda` | 🚧 Coming soon |
 
 Only the drivers marked **Published** are downloadable today; run
 `… install.sh --list` for the authoritative, always-current list. Each driver's
