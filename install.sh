@@ -161,18 +161,20 @@ EOF
 
 # ---- manifest + install locations --------------------------------------------
 user_manifest_dir() {
-  if [ "$OS_MANIFEST" = macos ]; then
-    printf '%s\n' "$HOME/Library/Application Support/ADBC/Drivers"
-  else
-    printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/adbc/drivers"
-  fi
+  # macOS branch parked until macOS binaries ship (see detect_platform):
+  #   if [ "$OS_MANIFEST" = macos ]; then
+  #     printf '%s\n' "$HOME/Library/Application Support/ADBC/Drivers"
+  #   else
+  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/adbc/drivers"
+  #   fi
 }
 system_manifest_dir() {
-  if [ "$OS_MANIFEST" = macos ]; then
-    printf '%s\n' "/Library/Application Support/ADBC/Drivers"
-  else
-    printf '%s\n' "/etc/adbc/drivers"
-  fi
+  # macOS branch parked until macOS binaries ship (see detect_platform):
+  #   if [ "$OS_MANIFEST" = macos ]; then
+  #     printf '%s\n' "/Library/Application Support/ADBC/Drivers"
+  #   else
+  printf '%s\n' "/etc/adbc/drivers"
+  #   fi
 }
 
 write_manifest() { # <path> <name> <version> <libpath>
@@ -308,7 +310,8 @@ do_install() {
   info "Installed:"
   info "  library:  $libpath"
   info "  manifest: $manifest"
-  if [ "$SCOPE" != system ] && [ "$OS_MANIFEST" != macos ]; then
+  # macOS check parked until macOS binaries ship (was: && [ "$OS_MANIFEST" != macos ]):
+  if [ "$SCOPE" != system ]; then
     info "  (user manifest dir; if your ADBC client doesn't find it, set"
     info "   ADBC_DRIVER_PATH=$mandir)"
   fi
