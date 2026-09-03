@@ -113,6 +113,63 @@ Windows), and supply a licence yourself — place your `arpeio_adbc.lic` next to
 library, or set `ARPEIO_ADBC_LICENCE_FILE` / `ARPEIO_ADBC_LICENCE` at runtime (see
 [Supplying the licence](#supplying-the-licence)).
 
+If instead you want a normal **managed** install on a machine with no internet, keep
+this bundle and finish with `--offline` on the target — see below.
+
+## Offline / air-gapped install
+
+For a machine with no internet, install in two phases across two machines. The
+target gets a normal **managed** install — standard install location, an ADBC
+manifest in the driver-manager directory, and your licence — with **no network
+access at install time**.
+
+> **Both machines must share the same OS and CPU architecture** (the driver binary
+> is platform-specific), and you obtain your `.lic` separately from Arpeio
+> (`sales@arpe.io`) and carry it across yourself.
+
+**Phase 1 — on an online machine** (same OS/arch as the target): save the installer,
+then download the driver bundle. `--download-only` writes the driver binary, a
+`<driver>.toml` manifest, and the release `SHA256SUMS` into the bundle directory.
+
+Linux / macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh -o install.sh
+sh install.sh arrowtds --download-only --dir ./arrowtds-bundle
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.ps1 -OutFile install.ps1
+.\install.ps1 arrowtds -DownloadOnly -Dir .\arrowtds-bundle
+```
+
+Copy `install.sh` (or `install.ps1`), the `arrowtds-bundle` directory, and your
+`your.lic` to the offline machine (USB stick, internal transfer, etc.).
+
+**Phase 2 — on the offline machine**: run the installer in offline mode against the
+bundle. It re-verifies the binary against the bundled `SHA256SUMS`, installs into the
+standard location, writes the ADBC manifest, and copies your licence — all with no
+network calls.
+
+Linux / macOS:
+
+```sh
+sh install.sh arrowtds --offline --dir ./arrowtds-bundle --license ./your.lic
+```
+
+Windows (PowerShell):
+
+```powershell
+.\install.ps1 arrowtds -Offline -Dir .\arrowtds-bundle -License .\your.lic
+```
+
+The version is read from the bundled manifest automatically; pass `--version` /
+`-Version` to override it. `--user` / `--system` / `--prefix` work exactly as in a
+normal install, and the bundle directory is left intact so you can reuse it (for
+another user scope, or another machine of the same platform).
+
 ## Listing and removing
 
 See what's installed on this machine (scans both the user and system locations,
@@ -145,8 +202,9 @@ to remove a machine-wide one. On Windows, use `-Installed` and
 | `--license <path>` | `-License <path>` | Install your `.lic` file next to the driver. |
 | `--license-content <text>` | `-LicenseContent <text>` | Install the licence from inline text. |
 | `--prefix <dir>` | `-Prefix <dir>` | Override the library install directory. |
-| `--download-only` | `-DownloadOnly` | Just download the binary + manifest into a dir (see [Download only](#download-only)); no managed install. |
-| `--dir <dir>` | `-Dir <dir>` | Destination directory for `--download-only` (default: current dir). |
+| `--download-only` | `-DownloadOnly` | Just download the binary + manifest + `SHA256SUMS` into a dir (see [Download only](#download-only)); no managed install. |
+| `--offline` | `-Offline` | Managed install from a pre-downloaded bundle with no network (see [Offline / air-gapped install](#offline--air-gapped-install)). |
+| `--dir <dir>` | `-Dir <dir>` | Bundle directory: destination for `--download-only`, source for `--offline` (default: current dir). |
 | `--list` | `-List` | List *available* drivers + latest published versions. |
 | `--versions [<driver>]` | `-Versions [<driver>]` | List *every* published version (all drivers, or one). |
 | `--installed` | `-Installed` | List the drivers *installed* on this machine. |
