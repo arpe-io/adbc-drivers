@@ -170,6 +170,11 @@ The version is read from the bundled manifest automatically; pass `--version` /
 normal install, and the bundle directory is left intact so you can reuse it (for
 another user scope, or another machine of the same platform).
 
+The bundle must contain the `SHA256SUMS` that `--download-only` saved; a missing one
+is treated as an incomplete transfer and the install fails. If you deliberately
+prepared a bundle without it, pass `--skip-checksum` / `-SkipChecksum` to install
+without verification.
+
 ## Listing and removing
 
 See what's installed on this machine (scans both the user and system locations,
@@ -205,6 +210,7 @@ to remove a machine-wide one. On Windows, use `-Installed` and
 | `--download-only` | `-DownloadOnly` | Just download the binary + manifest + `SHA256SUMS` into a dir (see [Download only](#download-only)); no managed install. |
 | `--offline` | `-Offline` | Managed install from a pre-downloaded bundle with no network (see [Offline / air-gapped install](#offline--air-gapped-install)). |
 | `--dir <dir>` | `-Dir <dir>` | Bundle directory: destination for `--download-only`, source for `--offline` (default: current dir). |
+| `--skip-checksum` | `-SkipChecksum` | (`--offline` only) Install without checksum verification; otherwise a missing `SHA256SUMS` fails as an incomplete bundle. |
 | `--list` | `-List` | List *available* drivers + latest published versions. |
 | `--versions [<driver>]` | `-Versions [<driver>]` | List *every* published version (all drivers, or one). |
 | `--installed` | `-Installed` | List the drivers *installed* on this machine. |

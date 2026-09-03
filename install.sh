@@ -130,6 +130,7 @@ Usage:
   install.sh <driver> --download-only [--version <X.Y.Z|latest>] [--dir <path>]
   install.sh <driver> --offline [--dir <path>] [--version <X.Y.Z>] [--user|--system]
              [--license <path> | --license-content <text>] [--prefix <dir>]
+             [--skip-checksum]
   install.sh --installed [--user|--system]
   install.sh --uninstall <driver> [--user|--system]
   install.sh --list
@@ -160,6 +161,10 @@ Options:
                      is read from the bundled manifest unless --version is given.
   --dir              Bundle directory: destination for --download-only, source for
                      --offline (default: current dir).
+  --skip-checksum    (--offline only) Install without checksum verification. Use
+                     only if the bundle has no SHA256SUMS on purpose; otherwise a
+                     missing SHA256SUMS is treated as an incomplete bundle and
+                     fails.
   --installed        List the drivers installed on this machine (both scopes by
                      default; narrow with --user/--system).
   --uninstall        Remove a driver: its library, copied licence, and manifest.
@@ -454,16 +459,19 @@ do_offline() {
 
   info "Installing ${name} ${ver} (${MANIFEST_KEY}) — offline from ${srcdir}"
 
-  # Verify against the bundled SHA256SUMS. A mismatch or missing entry is fatal;
-  # a missing SHA256SUMS (or no sha tool) only warns — air-gapped-friendly.
-  if [ -f "$srcdir/SHA256SUMS" ]; then
-    if have sha256sum || have shasum; then
-      verify_local_checksum "$srcdir/SHA256SUMS" "$asset" "$srcasset"
-    else
-      info "  warning: no sha256sum/shasum available — skipping checksum verification"
-    fi
+  # Verify against the bundled SHA256SUMS. Because every release ships one, a
+  # missing SHA256SUMS almost always means an incomplete bundle, so it is fatal
+  # (as is a mismatch or a missing entry). --skip-checksum installs unverified.
+  if [ "$SKIP_CHECKSUM" = 1 ]; then
+    info "  warning: --skip-checksum given — installing without checksum verification"
+  elif [ ! -f "$srcdir/SHA256SUMS" ]; then
+    err "no SHA256SUMS in the bundle: $srcdir/SHA256SUMS
+  the bundle looks incomplete — re-copy it from the --download-only output,
+  or pass --skip-checksum to install without verification"
+  elif have sha256sum || have shasum; then
+    verify_local_checksum "$srcdir/SHA256SUMS" "$asset" "$srcasset"
   else
-    info "  warning: no SHA256SUMS in the bundle — skipping checksum verification"
+    err "need sha256sum or shasum to verify the bundle (or pass --skip-checksum to install without verification)"
   fi
 
   mkdir -p "$libdir" "$mandir" || err "cannot create install dirs (try --user, or sudo for --system)"
@@ -570,6 +578,7 @@ LICENSE=""
 LICENSE_CONTENT=""
 PREFIX=""
 DIR=""
+SKIP_CHECKSUM=0
 ACTION=install
 
 while [ $# -gt 0 ]; do
@@ -580,6 +589,7 @@ while [ $# -gt 0 ]; do
     --uninstall) ACTION=uninstall ;;
     --download-only) ACTION=download ;;
     --offline) ACTION=offline ;;
+    --skip-checksum) SKIP_CHECKSUM=1 ;;
     --dir) shift; DIR="${1:?--dir needs a path}" ;;
     --dir=*) DIR="${1#*=}" ;;
     --help|-h) usage; exit 0 ;;

@@ -27,6 +27,7 @@ param(
   [string] $Dir,
   [switch] $DownloadOnly,
   [switch] $Offline,
+  [switch] $SkipChecksum,
   [switch] $List,
   [switch] $Versions,
   [switch] $Installed,
@@ -152,6 +153,7 @@ Usage:
   install.ps1 <driver> -DownloadOnly [-Version <X.Y.Z|latest>] [-Dir <path>]
   install.ps1 <driver> -Offline [-Dir <path>] [-Version <X.Y.Z>] [-Scope user|system]
               [-License <path> | -LicenseContent <text>] [-Prefix <dir>]
+              [-SkipChecksum]
   install.ps1 -Installed [-Scope user|system]
   install.ps1 -Uninstall <driver> [-Scope user|system]
   install.ps1 -List
@@ -172,6 +174,9 @@ Drivers: $($Registry.Keys -join ', ')
                    from the bundled manifest unless -Version is given.
   -Dir             Bundle directory: destination for -DownloadOnly, source for
                    -Offline (default: current dir).
+  -SkipChecksum    (-Offline only) Install without checksum verification. Use only
+                   if the bundle has no SHA256SUMS on purpose; otherwise a missing
+                   SHA256SUMS is treated as an incomplete bundle and fails.
   -Versions        List every published version of each driver (or one driver,
                    if named), newest first.
   -Installed       List the drivers installed on this machine (both scopes by
@@ -465,13 +470,18 @@ function Install-DriverOffline {
 
   Write-Info "Installing $name $ver ($manifestKey) - offline from $srcdir"
 
-  # Verify against the bundled SHA256SUMS. A mismatch or missing entry is fatal;
-  # a missing SHA256SUMS only warns - air-gapped-friendly.
+  # Verify against the bundled SHA256SUMS. Because every release ships one, a
+  # missing SHA256SUMS almost always means an incomplete bundle, so it is fatal
+  # (as is a mismatch or a missing entry). -SkipChecksum installs unverified.
   $sumsFile = Join-Path $srcdir "SHA256SUMS"
-  if (Test-Path $sumsFile) {
-    Test-LocalChecksum $sumsFile $asset $srcasset
+  if ($SkipChecksum) {
+    Write-Info "  warning: -SkipChecksum given - installing without checksum verification"
+  } elseif (-not (Test-Path $sumsFile)) {
+    Fail ("no SHA256SUMS in the bundle: $sumsFile`n" +
+          "  the bundle looks incomplete - re-copy it from the -DownloadOnly output,`n" +
+          "  or pass -SkipChecksum to install without verification")
   } else {
-    Write-Info "  warning: no SHA256SUMS in the bundle - skipping checksum verification"
+    Test-LocalChecksum $sumsFile $asset $srcasset
   }
 
   New-Item -ItemType Directory -Force -Path $libdir, $mandir | Out-Null
