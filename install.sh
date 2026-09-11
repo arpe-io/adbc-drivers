@@ -21,9 +21,9 @@ DL="https://github.com/${DIST_REPO}/releases/download"
 # driver_field <name> <field>  where field ∈ lib|display|dbms
 driver_field() {
   case "$1" in
-    arpemssql)  _lib=arpemssql_adbc_driver;  _display=ArPeMSSQL;  _dbms="Microsoft SQL Server" ;;
-    arpepgsql) _lib=arpepgsql_adbc_driver; _display=ArPePgSQL; _dbms="PostgreSQL" ;;
-    arpeoracle)  _lib=arpeoracle_adbc_driver;  _display=ArPeOracle;  _dbms="Oracle" ;;
+    arpemssql)  _lib=arpemssql_adbc_driver;  _display=ArpeMSSQL;  _dbms="Microsoft SQL Server" ;;
+    arpepgsql) _lib=arpepgsql_adbc_driver; _display=ArpePGSQL; _dbms="PostgreSQL" ;;
+    arpeoracle)  _lib=arpeoracle_adbc_driver;  _display=ArpeOracle;  _dbms="Oracle" ;;
     *) return 1 ;;
   esac
   case "$2" in

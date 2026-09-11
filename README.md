@@ -19,18 +19,18 @@ compatibility, and troubleshooting.
 
 | Your database | Driver | Load name | Status |
 |---|---|---|---|
-| Microsoft SQL Server (incl. Azure SQL, Fabric) | ArPeMSSQL | `arpemssql` | ✅ Published |
-| PostgreSQL | ArPePgSQL | `arpepgsql` | ✅ Published |
-| Oracle | ArPeOracle | `arpeoracle` | ✅ Published |
-| IBM Db2 | ArPeDb2 | `arpedb2` | 🚧 Coming soon |
+| Microsoft SQL Server (incl. Azure SQL, Fabric) | ArpeMSSQL | `arpemssql` | ✅ Published |
+| PostgreSQL | ArpePGSQL | `arpepgsql` | ✅ Published |
+| Oracle | ArpeOracle | `arpeoracle` | ✅ Published |
+| IBM Db2 | ArpeDb2 | `arpedb2` | 🚧 Coming soon |
 
 Only the drivers marked **Published** are downloadable today; run
 `… install.sh --list` for the authoritative, always-current list. Each driver's
 connection guide, data-type mapping, and compatibility matrix live on the
 [documentation site](https://arpe-io.github.io/arpeio-adbc-drivers-docs/) —
-[ArPeMSSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpemssql/),
-[ArPePgSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpepgsql/),
-[ArPeOracle](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeoracle/).
+[ArpeMSSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpemssql/),
+[ArpePGSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpepgsql/),
+[ArpeOracle](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeoracle/).
 
 The driver *binaries* are published here as public GitHub Releases and are free
 to download. They are **licence-gated**: a driver requires a valid Arpeio licence

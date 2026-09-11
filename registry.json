@@ -4,19 +4,19 @@
   "publisher": "Arpeio",
   "drivers": {
     "arpemssql": {
-      "display": "ArPeMSSQL",
+      "display": "ArpeMSSQL",
       "dbms": "Microsoft SQL Server",
       "lib": "arpemssql_adbc_driver",
       "entrypoint": "AdbcDriverInit"
     },
     "arpepgsql": {
-      "display": "ArPePgSQL",
+      "display": "ArpePGSQL",
       "dbms": "PostgreSQL",
       "lib": "arpepgsql_adbc_driver",
       "entrypoint": "AdbcDriverInit"
     },
     "arpeoracle": {
-      "display": "ArPeOracle",
+      "display": "ArpeOracle",
       "dbms": "Oracle",
       "lib": "arpeoracle_adbc_driver",
       "entrypoint": "AdbcDriverInit"

@@ -44,9 +44,9 @@ $Api = "https://api.github.com/repos/$DistRepo/releases"
 $Dl  = "https://github.com/$DistRepo/releases/download"
 
 $Registry = [ordered]@{
-  arpemssql  = @{ display = "ArPeMSSQL";  dbms = "Microsoft SQL Server"; lib = "arpemssql_adbc_driver"  }
-  arpepgsql = @{ display = "ArPePgSQL"; dbms = "PostgreSQL";           lib = "arpepgsql_adbc_driver" }
-  arpeoracle  = @{ display = "ArPeOracle";  dbms = "Oracle";               lib = "arpeoracle_adbc_driver"  }
+  arpemssql  = @{ display = "ArpeMSSQL";  dbms = "Microsoft SQL Server"; lib = "arpemssql_adbc_driver"  }
+  arpepgsql = @{ display = "ArpePGSQL"; dbms = "PostgreSQL";           lib = "arpepgsql_adbc_driver" }
+  arpeoracle  = @{ display = "ArpeOracle";  dbms = "Oracle";               lib = "arpeoracle_adbc_driver"  }
 }
 
 function Write-Info { param([string]$m) Write-Host $m }
