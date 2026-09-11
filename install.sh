@@ -52,17 +52,25 @@ sha256_of() {
   else err "need sha256sum or shasum to verify the download"; fi
 }
 
+# Compare a local file against its entry in a local SHA256SUMS file. A missing
+# entry for the asset — or a mismatch — is fatal. The caller decides what to do
+# when the SHA256SUMS file (or a sha tool) is absent.
+verify_local_checksum() { # <sums_file> <asset> <asset_path>
+  _sums=$1; _asset=$2; _path=$3
+  _want=$(grep " $_asset\$" "$_sums" | awk '{print $1}' | head -n1)
+  [ -n "$_want" ] || err "SHA256SUMS has no entry for $_asset"
+  _got=$(sha256_of "$_path")
+  [ "$_want" = "$_got" ] || err "checksum mismatch for $_asset (expected $_want, got $_got)"
+  info "  checksum OK"
+}
+
 # Verify $tmp/$asset against the release SHA256SUMS (best-effort): a missing
 # SHA256SUMS is only a warning, but a checksum mismatch — or a SHA256SUMS with no
 # entry for the asset — is fatal.
 verify_checksum() { # <sums_url> <asset> <tmp>
   _sums_url=$1; _asset=$2; _tmp=$3
   if download "$_sums_url" "$_tmp/SHA256SUMS" 2>/dev/null; then
-    _want=$(grep " $_asset\$" "$_tmp/SHA256SUMS" | awk '{print $1}' | head -n1)
-    [ -n "$_want" ] || err "SHA256SUMS has no entry for $_asset"
-    _got=$(sha256_of "$_tmp/$_asset")
-    [ "$_want" = "$_got" ] || err "checksum mismatch for $_asset (expected $_want, got $_got)"
-    info "  checksum OK"
+    verify_local_checksum "$_tmp/SHA256SUMS" "$_asset" "$_tmp/$_asset"
   else
     info "  warning: no SHA256SUMS in the release — skipping checksum verification"
   fi
@@ -120,6 +128,9 @@ Usage:
   install.sh <driver> [--version <X.Y.Z|latest>] [--user|--system]
              [--license <path> | --license-content <text>] [--prefix <dir>]
   install.sh <driver> --download-only [--version <X.Y.Z|latest>] [--dir <path>]
+  install.sh <driver> --offline [--dir <path>] [--version <X.Y.Z>] [--user|--system]
+             [--license <path> | --license-content <text>] [--prefix <dir>]
+             [--skip-checksum]
   install.sh --installed [--user|--system]
   install.sh --uninstall <driver> [--user|--system]
   install.sh --list
@@ -139,11 +150,21 @@ Options:
   --license-content  The licence text itself; written verbatim to arpeio_adbc.lic
                      (handy for CI — note it is visible in the process list).
   --prefix           Override the library install directory.
-  --download-only    Just download the driver binary + a ready-to-use manifest into
-                     a plain directory (see --dir); no licence is copied, no system
-                     dir is touched. Point ADBC_DRIVER_PATH at the dir and supply
-                     the licence yourself.
-  --dir              Destination directory for --download-only (default: current dir).
+  --download-only    Just download the driver binary + a ready-to-use manifest and
+                     the release SHA256SUMS into a plain directory (see --dir); no
+                     licence is copied, no system dir is touched. Point
+                     ADBC_DRIVER_PATH at the dir and supply the licence yourself, or
+                     move the dir to an offline machine and finish with --offline.
+  --offline          Install a bundle previously fetched with --download-only, with
+                     no network access: a normal managed install (standard locations
+                     + ADBC manifest + licence) from the bundle in --dir. The version
+                     is read from the bundled manifest unless --version is given.
+  --dir              Bundle directory: destination for --download-only, source for
+                     --offline (default: current dir).
+  --skip-checksum    (--offline only) Install without checksum verification. Use
+                     only if the bundle has no SHA256SUMS on purpose; otherwise a
+                     missing SHA256SUMS is treated as an incomplete bundle and
+                     fails.
   --installed        List the drivers installed on this machine (both scopes by
                      default; narrow with --user/--system).
   --uninstall        Remove a driver: its library, copied licence, and manifest.
@@ -364,7 +385,13 @@ do_download() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/arpeio-adbc.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT INT TERM
   download "$url" "$tmp/$asset" || err "download failed (is ${name} ${ver} published for ${OS_ASSET}-${ASSET_ARCH}?)"
-  verify_checksum "$sums_url" "$asset" "$tmp"
+  # Save SHA256SUMS into the bundle (not the temp dir) so it can be verified later
+  # by an offline install (see --offline).
+  if download "$sums_url" "$destdir/SHA256SUMS" 2>/dev/null; then
+    verify_local_checksum "$destdir/SHA256SUMS" "$asset" "$tmp/$asset"
+  else
+    info "  warning: no SHA256SUMS in the release — skipping checksum verification"
+  fi
 
   libpath="$destdir/$asset"
   mv "$tmp/$asset" "$libpath"
@@ -375,8 +402,9 @@ do_download() {
 
   info ""
   info "Downloaded:"
-  info "  library:  $libpath"
-  info "  manifest: $manifest"
+  info "  library:   $libpath"
+  info "  manifest:  $manifest"
+  info "  checksums: $destdir/SHA256SUMS"
   info ""
   info "To load it by name, point the ADBC driver manager at this directory:"
   info "  export ADBC_DRIVER_PATH=$destdir"
@@ -384,6 +412,99 @@ do_download() {
   info "  This driver is licence-gated; supply a licence yourself: place your"
   info "  arpeio_adbc.lic next to the library, or set ARPEIO_ADBC_LICENCE_FILE /"
   info "  ARPEIO_ADBC_LICENCE at runtime."
+  info ""
+  info "For an air-gapped install, copy this directory (and install.sh) to the"
+  info "offline machine — same OS/arch — and run a managed install with no network:"
+  info "  sh install.sh ${name} --offline --dir ${destdir} --license <your.lic>"
+}
+
+# Install a pre-downloaded bundle (see --download-only) with ZERO network access:
+# a normal MANAGED install into the standard locations + ADBC manifest + licence.
+# The bundle dir is --dir (default: current dir) and must contain the driver
+# binary for THIS platform. SHA256SUMS and <driver>.toml are used if present.
+do_offline() {
+  name=$1
+  driver_field "$name" lib >/dev/null 2>&1 || err "unknown driver '$name' (see --list)"
+  detect_platform
+
+  srcdir="${DIR:-.}"
+  [ -d "$srcdir" ] || err "bundle directory not found: $srcdir (create it on an online machine with --download-only)"
+  srcdir=$(cd "$srcdir" && pwd)
+
+  lib=$(driver_field "$name" lib)
+  asset="${LIB_PREFIX}${lib}-${OS_ASSET}-${ASSET_ARCH}.${LIB_EXT}"
+  srcasset="$srcdir/$asset"
+  [ -f "$srcasset" ] || err "driver binary not found in the bundle: $srcasset
+  download it on an online machine of the same OS/arch with:
+    install.sh ${name} --download-only --dir <dir>"
+
+  # Resolve the version WITHOUT network. An explicit --version wins; otherwise read
+  # it back from the bundled manifest; error if neither is available. The sentinel
+  # "latest" cannot be resolved offline, so it means "use the bundled manifest".
+  bundle_manifest="$srcdir/$name.toml"
+  if [ "$VERSION" != latest ]; then
+    ver="${VERSION#v}"
+  elif [ -f "$bundle_manifest" ]; then
+    ver=$(manifest_version_of "$bundle_manifest")
+    [ -n "$ver" ] || err "cannot read the version from $bundle_manifest — pass --version X.Y.Z"
+  else
+    err "cannot determine the version offline: no $bundle_manifest in the bundle and no --version (pass --version X.Y.Z)"
+  fi
+
+  # Install locations (identical to do_install).
+  if [ -n "${PREFIX:-}" ]; then libdir="$PREFIX/$name"
+  elif [ "$SCOPE" = system ]; then libdir="/opt/arpeio-adbc/$name"
+  else libdir="$HOME/.local/lib/arpeio-adbc/$name"; fi
+  if [ "$SCOPE" = system ]; then mandir=$(system_manifest_dir); else mandir=$(user_manifest_dir); fi
+
+  info "Installing ${name} ${ver} (${MANIFEST_KEY}) — offline from ${srcdir}"
+
+  # Verify against the bundled SHA256SUMS. Because every release ships one, a
+  # missing SHA256SUMS almost always means an incomplete bundle, so it is fatal
+  # (as is a mismatch or a missing entry). --skip-checksum installs unverified.
+  if [ "$SKIP_CHECKSUM" = 1 ]; then
+    info "  warning: --skip-checksum given — installing without checksum verification"
+  elif [ ! -f "$srcdir/SHA256SUMS" ]; then
+    err "no SHA256SUMS in the bundle: $srcdir/SHA256SUMS
+  the bundle looks incomplete — re-copy it from the --download-only output,
+  or pass --skip-checksum to install without verification"
+  elif have sha256sum || have shasum; then
+    verify_local_checksum "$srcdir/SHA256SUMS" "$asset" "$srcasset"
+  else
+    err "need sha256sum or shasum to verify the bundle (or pass --skip-checksum to install without verification)"
+  fi
+
+  mkdir -p "$libdir" "$mandir" || err "cannot create install dirs (try --user, or sudo for --system)"
+  libpath="$libdir/$asset"
+  cp "$srcasset" "$libpath"   # copy, not move: keep the bundle reusable
+  chmod 0755 "$libpath"
+
+  # Licence: install it from whichever source was given (see install_license).
+  install_license "$libdir" || true
+
+  manifest="$mandir/$name.toml"
+  write_manifest "$manifest" "$name" "$ver" "$libpath"   # fresh absolute path for THIS host
+
+  info ""
+  info "Installed:"
+  info "  library:  $libpath"
+  info "  manifest: $manifest"
+  # macOS check parked until macOS binaries ship (was: && [ "$OS_MANIFEST" != macos ]):
+  if [ "$SCOPE" != system ]; then
+    info "  (user manifest dir; if your ADBC client doesn't find it, set"
+    info "   ADBC_DRIVER_PATH=$mandir)"
+  fi
+  if [ ! -f "$libdir/arpeio_adbc.lic" ]; then
+    info ""
+    info "  ACTION REQUIRED: this driver needs a valid Arpeio licence to load. Supply"
+    info "  it with --license <file> or --license-content <text>, set"
+    info "  ARPEIO_ADBC_LICENCE_FILE / ARPEIO_ADBC_LICENCE, or place arpeio_adbc.lic"
+    info "  in $libdir."
+  fi
+  info ""
+  info "Load it by name, e.g. in Python:"
+  info "  import adbc_driver_manager.dbapi as dbapi"
+  info "  dbapi.connect(driver=\"$name\", db_kwargs={...})"
 }
 
 # List drivers actually installed on this machine, scanning both the user and
@@ -457,6 +578,7 @@ LICENSE=""
 LICENSE_CONTENT=""
 PREFIX=""
 DIR=""
+SKIP_CHECKSUM=0
 ACTION=install
 
 while [ $# -gt 0 ]; do
@@ -466,6 +588,8 @@ while [ $# -gt 0 ]; do
     --installed) ACTION=installed ;;
     --uninstall) ACTION=uninstall ;;
     --download-only) ACTION=download ;;
+    --offline) ACTION=offline ;;
+    --skip-checksum) SKIP_CHECKSUM=1 ;;
     --dir) shift; DIR="${1:?--dir needs a path}" ;;
     --dir=*) DIR="${1#*=}" ;;
     --help|-h) usage; exit 0 ;;
@@ -497,4 +621,6 @@ case "$ACTION" in
   download)  have curl || have wget || err "need curl or wget"
              [ -n "$DRIVER" ] || err "--download-only needs a driver name (see --list)"
              do_download "$DRIVER" ;;
+  offline)   [ -n "$DRIVER" ] || err "--offline needs a driver name (see --list)"
+             do_offline "$DRIVER" ;;
 esac

@@ -26,6 +26,8 @@ param(
   [string] $Prefix,
   [string] $Dir,
   [switch] $DownloadOnly,
+  [switch] $Offline,
+  [switch] $SkipChecksum,
   [switch] $List,
   [switch] $Versions,
   [switch] $Installed,
@@ -149,6 +151,9 @@ Usage:
   install.ps1 <driver> [-Version <X.Y.Z|latest>] [-Scope user|system]
               [-License <path> | -LicenseContent <text>] [-Prefix <dir>]
   install.ps1 <driver> -DownloadOnly [-Version <X.Y.Z|latest>] [-Dir <path>]
+  install.ps1 <driver> -Offline [-Dir <path>] [-Version <X.Y.Z>] [-Scope user|system]
+              [-License <path> | -LicenseContent <text>] [-Prefix <dir>]
+              [-SkipChecksum]
   install.ps1 -Installed [-Scope user|system]
   install.ps1 -Uninstall <driver> [-Scope user|system]
   install.ps1 -List
@@ -158,11 +163,20 @@ Drivers: $($Registry.Keys -join ', ')
 
   -License         Path to your Arpeio licence (.lic); copied next to the driver.
   -LicenseContent  The licence text itself; written verbatim to arpeio_adbc.lic.
-  -DownloadOnly    Just download the driver binary + a ready-to-use manifest into a
-                   plain directory (see -Dir); no licence is copied, no system dir is
-                   touched. Point ADBC_DRIVER_PATH at the dir and supply the licence
-                   yourself.
-  -Dir             Destination directory for -DownloadOnly (default: current dir).
+  -DownloadOnly    Just download the driver binary + a ready-to-use manifest and the
+                   release SHA256SUMS into a plain directory (see -Dir); no licence is
+                   copied, no system dir is touched. Point ADBC_DRIVER_PATH at the dir
+                   and supply the licence yourself, or move the dir to an offline
+                   machine and finish with -Offline.
+  -Offline         Install a bundle previously fetched with -DownloadOnly, with no
+                   network access: a normal managed install (standard locations + ADBC
+                   manifest + licence) from the bundle in -Dir. The version is read
+                   from the bundled manifest unless -Version is given.
+  -Dir             Bundle directory: destination for -DownloadOnly, source for
+                   -Offline (default: current dir).
+  -SkipChecksum    (-Offline only) Install without checksum verification. Use only
+                   if the bundle has no SHA256SUMS on purpose; otherwise a missing
+                   SHA256SUMS is treated as an incomplete bundle and fails.
   -Versions        List every published version of each driver (or one driver,
                    if named), newest first.
   -Installed       List the drivers installed on this machine (both scopes by
@@ -202,6 +216,24 @@ function Install-License {
   }
 }
 
+# Compare $dest against its entry in a local SHA256SUMS file. A missing entry for
+# the asset (or a mismatch) is fatal. The caller decides what to do when the
+# SHA256SUMS file is absent.
+function Test-LocalChecksum {
+  param([string]$sumsFile, [string]$asset, [string]$dest)
+  $sums = Get-Content -Raw -Path $sumsFile
+  # Match on the exact filename field (last whitespace-delimited token) so the
+  # parse is immune to CRLF vs LF and trailing whitespace.
+  $want = ($sums -split "`r?`n" |
+           ForEach-Object { $_.Trim() } |
+           Where-Object { ($_ -split '\s+')[-1] -eq $asset } |
+           ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
+  if (-not $want) { Fail "SHA256SUMS has no entry for $asset" }
+  $got = (Get-FileHash -Algorithm SHA256 -Path $dest).Hash.ToLower()
+  if ($want.ToLower() -ne $got) { Fail "checksum mismatch for $asset" }
+  Write-Info "  checksum OK"
+}
+
 # Verify $dest against the release SHA256SUMS (best-effort): a missing SHA256SUMS
 # is only a warning, but a checksum mismatch (or a SHA256SUMS with no entry for
 # the asset) is fatal.
@@ -216,20 +248,34 @@ function Test-Checksum {
     # avoids the IE DOM parser (the "risque d'execution de script" prompt) on 5.1.
     $sumsFile = Join-Path $tmp "SHA256SUMS"
     Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-    $sums = Get-Content -Raw -Path $sumsFile
-    # Match on the exact filename field (last whitespace-delimited token) so the
-    # parse is immune to CRLF vs LF and trailing whitespace.
-    $want = ($sums -split "`r?`n" |
-             ForEach-Object { $_.Trim() } |
-             Where-Object { ($_ -split '\s+')[-1] -eq $asset } |
-             ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
-    if (-not $want) { Fail "SHA256SUMS has no entry for $asset" }
-    $got = (Get-FileHash -Algorithm SHA256 -Path $dest).Hash.ToLower()
-    if ($want.ToLower() -ne $got) { Fail "checksum mismatch for $asset" }
-    Write-Info "  checksum OK"
+    Test-LocalChecksum $sumsFile $asset $dest
   } catch [System.Net.WebException] {
     Write-Info "  warning: no SHA256SUMS in the release - skipping checksum verification"
   }
+}
+
+# Write the ADBC driver manifest for $name at $manifestFile, pointing at $libpath.
+function Write-DriverManifest {
+  param([string]$name, [string]$ver, [string]$manifestKey, [string]$libpath, [string]$manifestFile)
+  # The manifest path must use doubled backslashes to be a valid TOML string.
+  $tomlPath = $libpath -replace '\\', '\\'
+  $manifest = @"
+# Generated by the Arpeio ADBC installer - do not edit by hand.
+manifest_version = 1
+name = "$($Registry[$name].display) ADBC Driver"
+version = "$ver"
+publisher = "Arpeio"
+
+[ADBC]
+version = "1.1.0"
+
+[Driver]
+entrypoint = "AdbcDriverInit"
+
+[Driver.shared]
+$manifestKey = "$tomlPath"
+"@
+  Set-Content -Path $manifestFile -Value $manifest -Encoding UTF8
 }
 
 function Install-Driver {
@@ -278,26 +324,8 @@ function Install-Driver {
     Install-License $libdir
     $licDest = Join-Path $libdir "arpeio_adbc.lic"
 
-    # The manifest path must use doubled backslashes to be a valid TOML string.
-    $tomlPath = $libpath -replace '\\', '\\'
-    $manifest = @"
-# Generated by the Arpeio ADBC installer - do not edit by hand.
-manifest_version = 1
-name = "$($Registry[$name].display) ADBC Driver"
-version = "$ver"
-publisher = "Arpeio"
-
-[ADBC]
-version = "1.1.0"
-
-[Driver]
-entrypoint = "AdbcDriverInit"
-
-[Driver.shared]
-$manifestKey = "$tomlPath"
-"@
     $manifestFile = Join-Path $mandir "$name.toml"
-    Set-Content -Path $manifestFile -Value $manifest -Encoding UTF8
+    Write-DriverManifest $name $ver $manifestKey $libpath $manifestFile
 
     Write-Info ""
     Write-Info "Installed:"
@@ -360,36 +388,27 @@ function Save-Driver {
   try {
     $dest = Join-Path $tmp $asset
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-    Test-Checksum $sumsUrl $asset $tmp $dest
+    # Save SHA256SUMS into the bundle (not the temp dir) so it can be verified later
+    # by an offline install (see -Offline).
+    $sumsFile = Join-Path $destdir "SHA256SUMS"
+    try {
+      Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+      Test-LocalChecksum $sumsFile $asset $dest
+    } catch [System.Net.WebException] {
+      Write-Info "  warning: no SHA256SUMS in the release - skipping checksum verification"
+    }
 
     $libpath = Join-Path $destdir $asset
     Move-Item -Force $dest $libpath
 
-    # The manifest path must use doubled backslashes to be a valid TOML string.
-    $tomlPath = $libpath -replace '\\', '\\'
-    $manifest = @"
-# Generated by the Arpeio ADBC installer - do not edit by hand.
-manifest_version = 1
-name = "$($Registry[$name].display) ADBC Driver"
-version = "$ver"
-publisher = "Arpeio"
-
-[ADBC]
-version = "1.1.0"
-
-[Driver]
-entrypoint = "AdbcDriverInit"
-
-[Driver.shared]
-$manifestKey = "$tomlPath"
-"@
     $manifestFile = Join-Path $destdir "$name.toml"
-    Set-Content -Path $manifestFile -Value $manifest -Encoding UTF8
+    Write-DriverManifest $name $ver $manifestKey $libpath $manifestFile
 
     Write-Info ""
     Write-Info "Downloaded:"
-    Write-Info "  library:  $libpath"
-    Write-Info "  manifest: $manifestFile"
+    Write-Info "  library:   $libpath"
+    Write-Info "  manifest:  $manifestFile"
+    Write-Info "  checksums: $sumsFile"
     Write-Info ""
     Write-Info "To load it by name, point the ADBC driver manager at this directory:"
     Write-Info "  setx ADBC_DRIVER_PATH `"$destdir`""
@@ -397,9 +416,104 @@ $manifestKey = "$tomlPath"
     Write-Info "  This driver is licence-gated; supply a licence yourself: place your"
     Write-Info "  arpeio_adbc.lic next to the library, or set ARPEIO_ADBC_LICENCE_FILE /"
     Write-Info "  ARPEIO_ADBC_LICENCE at runtime."
+    Write-Info ""
+    Write-Info "For an air-gapped install, copy this directory (and install.ps1) to the"
+    Write-Info "offline machine - same OS/arch - and run a managed install with no network:"
+    Write-Info "  .\install.ps1 $name -Offline -Dir $destdir -License <your.lic>"
   } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
   }
+}
+
+# Install a pre-downloaded bundle (see -DownloadOnly) with ZERO network access: a
+# normal MANAGED install into the standard locations + ADBC manifest + licence.
+# The bundle dir is -Dir (default: current dir) and must contain the driver DLL
+# for THIS platform. SHA256SUMS and <driver>.toml are used if present.
+function Install-DriverOffline {
+  param([string]$name)
+  if (-not $Registry.Contains($name)) { Fail "unknown driver '$name' (try -List)" }
+  $arch = Get-PlatformArch
+  $lib  = $Registry[$name].lib
+
+  $srcdir = if ($Dir) { $Dir } else { (Get-Location).Path }
+  if (-not (Test-Path $srcdir -PathType Container)) {
+    Fail "bundle directory not found: $srcdir (create it on an online machine with -DownloadOnly)"
+  }
+  $srcdir = (Resolve-Path $srcdir).Path
+
+  $asset = "$lib-win-$($arch.asset).dll"
+  $srcasset = Join-Path $srcdir $asset
+  if (-not (Test-Path $srcasset)) {
+    Fail ("driver binary not found in the bundle: $srcasset`n" +
+          "  download it on an online machine of the same OS/arch with:`n" +
+          "    install.ps1 $name -DownloadOnly -Dir <dir>")
+  }
+  $manifestKey = "windows_$($arch.manifest)"
+
+  # Resolve the version WITHOUT network. An explicit -Version wins; otherwise read
+  # it back from the bundled manifest; error if neither is available. The default
+  # "latest" cannot be resolved offline, so it means "use the bundled manifest".
+  $bundleManifest = Join-Path $srcdir "$name.toml"
+  if ($Version -ne "latest") {
+    $ver = $Version -replace '^v', ''
+  } elseif (Test-Path $bundleManifest) {
+    $ver = Read-ManifestVersion $bundleManifest
+    if (-not $ver) { Fail "cannot read the version from $bundleManifest - pass -Version X.Y.Z" }
+  } else {
+    Fail "cannot determine the version offline: no $bundleManifest in the bundle and no -Version (pass -Version X.Y.Z)"
+  }
+
+  if ($Prefix)                 { $libdir = Join-Path $Prefix $name }
+  elseif ($Scope -eq "system") { $libdir = Join-Path $env:ProgramFiles "arpeio-adbc\$name" }
+  else                         { $libdir = Join-Path $env:LOCALAPPDATA "arpeio-adbc\$name" }
+  if ($Scope -eq "system") { $mandir = Get-SystemManifestDir } else { $mandir = Get-UserManifestDir }
+
+  Write-Info "Installing $name $ver ($manifestKey) - offline from $srcdir"
+
+  # Verify against the bundled SHA256SUMS. Because every release ships one, a
+  # missing SHA256SUMS almost always means an incomplete bundle, so it is fatal
+  # (as is a mismatch or a missing entry). -SkipChecksum installs unverified.
+  $sumsFile = Join-Path $srcdir "SHA256SUMS"
+  if ($SkipChecksum) {
+    Write-Info "  warning: -SkipChecksum given - installing without checksum verification"
+  } elseif (-not (Test-Path $sumsFile)) {
+    Fail ("no SHA256SUMS in the bundle: $sumsFile`n" +
+          "  the bundle looks incomplete - re-copy it from the -DownloadOnly output,`n" +
+          "  or pass -SkipChecksum to install without verification")
+  } else {
+    Test-LocalChecksum $sumsFile $asset $srcasset
+  }
+
+  New-Item -ItemType Directory -Force -Path $libdir, $mandir | Out-Null
+  $libpath = Join-Path $libdir $asset
+  Copy-Item -Force $srcasset $libpath   # copy, not move: keep the bundle reusable
+
+  # Licence: install it from whichever source was given (see Install-License).
+  Install-License $libdir
+  $licDest = Join-Path $libdir "arpeio_adbc.lic"
+
+  $manifestFile = Join-Path $mandir "$name.toml"
+  Write-DriverManifest $name $ver $manifestKey $libpath $manifestFile
+
+  Write-Info ""
+  Write-Info "Installed:"
+  Write-Info "  library:  $libpath"
+  Write-Info "  manifest: $manifestFile"
+  if ($Scope -eq "system") {
+    [Environment]::SetEnvironmentVariable("ADBC_DRIVER_PATH", $mandir, "Machine")
+    Write-Info "  (added $mandir to the machine ADBC_DRIVER_PATH; open a new shell)"
+  }
+  if (-not (Test-Path $licDest)) {
+    Write-Info ""
+    Write-Info "  ACTION REQUIRED: this driver needs a valid Arpeio licence to load."
+    Write-Info "  Supply it with -License <file> or -LicenseContent <text>, set"
+    Write-Info "  ARPEIO_ADBC_LICENCE_FILE / ARPEIO_ADBC_LICENCE, or place"
+    Write-Info "  arpeio_adbc.lic in $libdir."
+  }
+  Write-Info ""
+  Write-Info "Load it by name, e.g. in Python:"
+  Write-Info "  import adbc_driver_manager.dbapi as dbapi"
+  Write-Info "  dbapi.connect(driver=`"$name`", db_kwargs={...})"
 }
 
 # List drivers actually installed on this machine, scanning both the user and
@@ -482,6 +596,10 @@ if ($Versions) { Show-Version $Driver; return }
 if ($DownloadOnly) {
   if (-not $Driver) { Fail "-DownloadOnly needs a driver name (see -List)" }
   Save-Driver $Driver; return
+}
+if ($Offline) {
+  if (-not $Driver) { Fail "-Offline needs a driver name (see -List)" }
+  Install-DriverOffline $Driver; return
 }
 if (-not $Driver) { Show-List; return }
 Install-Driver $Driver
