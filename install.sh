@@ -7,7 +7,7 @@
 # Downloads a prebuilt, license-gated Arpeio ADBC driver from the public
 # GitHub Releases of arpe-io/adbc-drivers, verifies its checksum, installs the
 # shared library, and writes an ADBC driver manifest so the driver can be loaded
-# by name (e.g. driver="arrowtds"). The binaries are free to download but require
+# by name (e.g. driver="arpemssql"). The binaries are free to download but require
 # a valid Arpeio licence at runtime — see --license below.
 #
 # Dependencies: sh, curl (or wget), and sha256sum (Linux) or shasum (macOS).
@@ -21,9 +21,9 @@ DL="https://github.com/${DIST_REPO}/releases/download"
 # driver_field <name> <field>  where field ∈ lib|display|dbms
 driver_field() {
   case "$1" in
-    arrowtds)  _lib=arrowtds_adbc_driver;  _display=ArrowTDS;  _dbms="Microsoft SQL Server" ;;
-    arrowfebe) _lib=arrowfebe_adbc_driver; _display=ArrowFEBE; _dbms="PostgreSQL" ;;
-    arrowttc)  _lib=arrowttc_adbc_driver;  _display=ArrowTTC;  _dbms="Oracle" ;;
+    arpemssql)  _lib=arpemssql_adbc_driver;  _display=ArPeMSSQL;  _dbms="Microsoft SQL Server" ;;
+    arpepgsql) _lib=arpepgsql_adbc_driver; _display=ArPePgSQL; _dbms="PostgreSQL" ;;
+    arpeoracle)  _lib=arpeoracle_adbc_driver;  _display=ArPeOracle;  _dbms="Oracle" ;;
     *) return 1 ;;
   esac
   case "$2" in
@@ -32,7 +32,7 @@ driver_field() {
     dbms) printf '%s\n' "$_dbms" ;;
   esac
 }
-ALL_DRIVERS="arrowtds arrowfebe arrowttc"
+ALL_DRIVERS="arpemssql arpepgsql arpeoracle"
 
 # ---- helpers -----------------------------------------------------------------
 info() { printf '%s\n' "$*" >&2; }
@@ -114,7 +114,7 @@ resolve_versions() {
       done
 }
 
-# Latest published STABLE tag for a driver, e.g. "arrowtds-v0.5.19" (empty if
+# Latest published STABLE tag for a driver, e.g. "arpemssql-v0.5.19" (empty if
 # none) — the newest version from resolve_versions, with the tag prefix restored.
 resolve_latest() {
   resolve_versions "$1" | head -n1 | while IFS= read -r _v; do printf '%s\n' "$1-v$_v"; done

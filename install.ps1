@@ -6,7 +6,7 @@
   Downloads a prebuilt, license-gated Arpeio ADBC driver from the public GitHub
   Releases of arpe-io/adbc-drivers, verifies its checksum, installs the DLL, and
   writes an ADBC driver manifest so the driver can be loaded by name
-  (e.g. driver="arrowtds"). The binaries are free to download but require a valid
+  (e.g. driver="arpemssql"). The binaries are free to download but require a valid
   Arpeio licence at runtime (no trial build).
 
 .EXAMPLE
@@ -14,7 +14,7 @@
   irm https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.ps1 | iex
 
   # With arguments:
-  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.ps1))) arrowtds -License C:\path\to\your.lic
+  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.ps1))) arpemssql -License C:\path\to\your.lic
 #>
 [CmdletBinding()]
 param(
@@ -44,9 +44,9 @@ $Api = "https://api.github.com/repos/$DistRepo/releases"
 $Dl  = "https://github.com/$DistRepo/releases/download"
 
 $Registry = [ordered]@{
-  arrowtds  = @{ display = "ArrowTDS";  dbms = "Microsoft SQL Server"; lib = "arrowtds_adbc_driver"  }
-  arrowfebe = @{ display = "ArrowFEBE"; dbms = "PostgreSQL";           lib = "arrowfebe_adbc_driver" }
-  arrowttc  = @{ display = "ArrowTTC";  dbms = "Oracle";               lib = "arrowttc_adbc_driver"  }
+  arpemssql  = @{ display = "ArPeMSSQL";  dbms = "Microsoft SQL Server"; lib = "arpemssql_adbc_driver"  }
+  arpepgsql = @{ display = "ArPePgSQL"; dbms = "PostgreSQL";           lib = "arpepgsql_adbc_driver" }
+  arpeoracle  = @{ display = "ArPeOracle";  dbms = "Oracle";               lib = "arpeoracle_adbc_driver"  }
 }
 
 function Write-Info { param([string]$m) Write-Host $m }
@@ -103,7 +103,7 @@ function Resolve-Version {
   return $out
 }
 
-# Latest published STABLE tag for a driver, e.g. "arrowtds-v0.5.19" (null if none)
+# Latest published STABLE tag for a driver, e.g. "arpemssql-v0.5.19" (null if none)
 # - the newest version from Resolve-Version, with the tag prefix restored.
 function Resolve-LatestTag {
   param([string]$name)
@@ -121,7 +121,7 @@ function Show-List {
     Write-Info ("  {0,-10} {1,-22} {2}" -f $name, $Registry[$name].dbms, $ver)
   }
   Write-Info ""
-  Write-Info "Install:  install.ps1 arrowtds -License C:\path\to\your.lic"
+  Write-Info "Install:  install.ps1 arpemssql -License C:\path\to\your.lic"
 }
 
 # List every published stable version of each driver (or just one, if a driver

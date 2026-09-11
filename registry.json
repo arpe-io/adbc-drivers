@@ -3,22 +3,22 @@
   "dist_repo": "arpe-io/adbc-drivers",
   "publisher": "Arpeio",
   "drivers": {
-    "arrowtds": {
-      "display": "ArrowTDS",
+    "arpemssql": {
+      "display": "ArPeMSSQL",
       "dbms": "Microsoft SQL Server",
-      "lib": "arrowtds_adbc_driver",
+      "lib": "arpemssql_adbc_driver",
       "entrypoint": "AdbcDriverInit"
     },
-    "arrowfebe": {
-      "display": "ArrowFEBE",
+    "arpepgsql": {
+      "display": "ArPePgSQL",
       "dbms": "PostgreSQL",
-      "lib": "arrowfebe_adbc_driver",
+      "lib": "arpepgsql_adbc_driver",
       "entrypoint": "AdbcDriverInit"
     },
-    "arrowttc": {
-      "display": "ArrowTTC",
+    "arpeoracle": {
+      "display": "ArPeOracle",
       "dbms": "Oracle",
-      "lib": "arrowttc_adbc_driver",
+      "lib": "arpeoracle_adbc_driver",
       "entrypoint": "AdbcDriverInit"
     }
   }

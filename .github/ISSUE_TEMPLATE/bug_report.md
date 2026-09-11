@@ -14,7 +14,7 @@ labels: bug
 The exact command you ran (redact your licence path):
 
 ```sh
-# e.g. curl -fsSL .../install.sh | sh -s -- arrowtds --installed
+# e.g. curl -fsSL .../install.sh | sh -s -- arpemssql --installed
 ```
 
 **Expected**
@@ -26,7 +26,7 @@ The exact command you ran (redact your licence path):
 - OS + version: <!-- e.g. Ubuntu 24.04 / macOS 14 / Windows 11 -->
 - Arch: <!-- x64 / arm64 -->
 - Installer: <!-- install.sh or install.ps1 -->
-- Driver + version: <!-- e.g. arrowtds latest -->
+- Driver + version: <!-- e.g. arpemssql latest -->
 
 **Installer output**
 
