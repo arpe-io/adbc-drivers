@@ -18,7 +18,7 @@ private repositories, so contributions here focus on:
 | `release/*` | Short-lived branches cut from `develop` to stabilise a release, then merged into `main` and tagged. |
 
 > Driver *binaries* are published under their own `<driver>-v<version>` releases
-> (e.g. `arrowtds-v0.5.19`); those are separate from the `vX.Y.Z` installer tags.
+> (e.g. `arpemssql-v0.5.19`); those are separate from the `vX.Y.Z` installer tags.
 
 ## Making a change
 

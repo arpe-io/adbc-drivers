@@ -19,18 +19,18 @@ compatibility, and troubleshooting.
 
 | Your database | Driver | Load name | Status |
 |---|---|---|---|
-| Microsoft SQL Server (incl. Azure SQL, Fabric) | ArrowTDS | `arrowtds` | ✅ Published |
-| PostgreSQL | ArrowFEBE | `arrowfebe` | ✅ Published |
-| Oracle | ArrowTTC | `arrowttc` | ✅ Published |
-| IBM Db2 | ArrowDRDA | `arrowdrda` | 🚧 Coming soon |
+| Microsoft SQL Server (incl. Azure SQL, Fabric) | ArpeMSSQL | `arpemssql` | ✅ Published |
+| PostgreSQL | ArpePGSQL | `arpepgsql` | ✅ Published |
+| Oracle | ArpeOracle | `arpeoracle` | ✅ Published |
+| IBM Db2 | ArpeDb2 | `arpedb2` | 🚧 Coming soon |
 
 Only the drivers marked **Published** are downloadable today; run
 `… install.sh --list` for the authoritative, always-current list. Each driver's
 connection guide, data-type mapping, and compatibility matrix live on the
 [documentation site](https://arpe-io.github.io/arpeio-adbc-drivers-docs/) —
-[ArrowTDS](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arrowtds/),
-[ArrowFEBE](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arrowfebe/),
-[ArrowTTC](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arrowttc/).
+[ArpeMSSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpemssql/),
+[ArpePGSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpepgsql/),
+[ArpeOracle](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeoracle/).
 
 The driver *binaries* are published here as public GitHub Releases and are free
 to download. They are **licence-gated**: a driver requires a valid Arpeio licence
@@ -42,14 +42,14 @@ at runtime — there is no trial build. Contact <sales@arpe.io> for a licence.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
-  | sh -s -- arrowtds --license /path/to/your.lic
+  | sh -s -- arpemssql --license /path/to/your.lic
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.ps1))) `
-  arrowtds -License C:\path\to\your.lic
+  arpemssql -License C:\path\to\your.lic
 ```
 
 List what's available and the latest published version of each:
@@ -61,13 +61,13 @@ curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.s
 List **every** published version (all drivers, or a single one), newest first:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh | sh -s -- --versions arrowtds
+curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh | sh -s -- --versions arpemssql
 ```
 
 ## What the installer does
 
 1. Downloads the driver's shared library for your OS/arch from this repo's
-   Releases (tag `<driver>-v<version>`, e.g. `arrowtds-v0.5.19`) and verifies it
+   Releases (tag `<driver>-v<version>`, e.g. `arpemssql-v0.5.19`) and verifies it
    against the release `SHA256SUMS`.
 2. Installs the library (default: per-user, under `~/.local/lib/arpeio-adbc/`
    on Unix / `%LOCALAPPDATA%\arpeio-adbc\` on Windows; `--system` / `-Scope
@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.s
 
    ```python
    import adbc_driver_manager.dbapi as dbapi
-   with dbapi.connect(driver="arrowtds",
+   with dbapi.connect(driver="arpemssql",
                       db_kwargs={"uri": "sqlserver://sa:<pw>@host:1433/?database=db&encrypt=true"}) as conn:
        ...
    ```
@@ -97,14 +97,14 @@ system directory, no licence file, no environment variable.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
-  | sh -s -- arrowtds --download-only --dir ./drivers
+  | sh -s -- arpemssql --download-only --dir ./drivers
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.ps1))) `
-  arrowtds -DownloadOnly -Dir .\drivers
+  arpemssql -DownloadOnly -Dir .\drivers
 ```
 
 To load the driver by name afterwards, point the ADBC driver manager at that
@@ -135,17 +135,17 @@ Linux / macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh -o install.sh
-sh install.sh arrowtds --download-only --dir ./arrowtds-bundle
+sh install.sh arpemssql --download-only --dir ./arpemssql-bundle
 ```
 
 Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.ps1 -OutFile install.ps1
-.\install.ps1 arrowtds -DownloadOnly -Dir .\arrowtds-bundle
+.\install.ps1 arpemssql -DownloadOnly -Dir .\arpemssql-bundle
 ```
 
-Copy `install.sh` (or `install.ps1`), the `arrowtds-bundle` directory, and your
+Copy `install.sh` (or `install.ps1`), the `arpemssql-bundle` directory, and your
 `your.lic` to the offline machine (USB stick, internal transfer, etc.).
 
 **Phase 2 — on the offline machine**: run the installer in offline mode against the
@@ -156,13 +156,13 @@ network calls.
 Linux / macOS:
 
 ```sh
-sh install.sh arrowtds --offline --dir ./arrowtds-bundle --license ./your.lic
+sh install.sh arpemssql --offline --dir ./arpemssql-bundle --license ./your.lic
 ```
 
 Windows (PowerShell):
 
 ```powershell
-.\install.ps1 arrowtds -Offline -Dir .\arrowtds-bundle -License .\your.lic
+.\install.ps1 arpemssql -Offline -Dir .\arpemssql-bundle -License .\your.lic
 ```
 
 The version is read from the bundled manifest automatically; pass `--version` /
@@ -190,12 +190,12 @@ Remove a driver — its library, the copied licence, and its manifest:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
-  | sh -s -- --uninstall arrowtds
+  | sh -s -- --uninstall arpemssql
 ```
 
 Uninstall acts on your per-user install by default; add `--system` (with `sudo`)
 to remove a machine-wide one. On Windows, use `-Installed` and
-`-Uninstall arrowtds` (an elevated shell for `-Scope system`).
+`-Uninstall arpemssql` (an elevated shell for `-Scope system`).
 
 ## Options
 
@@ -239,9 +239,9 @@ in the shell history and process list.
 
 ```sh
 # from a file
-... install.sh arrowtds --license /path/to/your.lic
+... install.sh arpemssql --license /path/to/your.lic
 # from a secret in CI (bash)
-ARPEIO_ADBC_LICENCE="$MY_LICENCE_SECRET" ... install.sh arrowtds
+ARPEIO_ADBC_LICENCE="$MY_LICENCE_SECRET" ... install.sh arpemssql
 ```
 
 ### At runtime
@@ -274,7 +274,7 @@ Re-run the installer; if it persists, download the release asset manually from t
 not see the manifest. Confirm the install with `… install.sh --installed`, then
 point `ADBC_DRIVER_PATH` at the directory the installer reports (see
 [Manifest search paths](#manifest-search-paths-advanced)). Make sure the client
-loads by the exact **load name** (`arrowtds`, `arrowfebe`, …).
+loads by the exact **load name** (`arpemssql`, `arpepgsql`, …).
 
 **Connection fails with an `ARROW_LIC_*` error.** The driver loaded but found no
 valid licence at runtime. Install one next to the driver (`--license`), or set
