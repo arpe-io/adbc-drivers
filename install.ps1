@@ -107,7 +107,7 @@ function Resolve-Version {
 # - the newest version from Resolve-Version, with the tag prefix restored.
 function Resolve-LatestTag {
   param([string]$name)
-  $vers = Resolve-Version $name
+  $vers = @(Resolve-Version $name)
   if ($vers.Count -gt 0) { return "$name-v$($vers[0])" }
   return $null
 }
@@ -135,7 +135,7 @@ function Show-Version {
   Write-Info "Published Arpeio ADBC driver versions (dist: $DistRepo):"
   Write-Info ""
   foreach ($d in $drivers) {
-    $vers = Resolve-Version $d
+    $vers = @(Resolve-Version $d)
     $shown = if ($vers.Count -gt 0) { $vers -join ", " } else { "(not published yet)" }
     Write-Info ("  {0,-10} {1,-22} {2}" -f $d, $Registry[$d].dbms, $shown)
   }
