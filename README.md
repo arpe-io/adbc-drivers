@@ -11,7 +11,7 @@ drivers. Each driver is a pure-native, high-performance ADBC driver that returns
 Apache Arrow directly — install it with a single command, then load it by name
 from any ADBC client.
 
-📖 **Documentation:** <https://arpe-io.github.io/arpeio-adbc-drivers-docs/> —
+📖 **Documentation:** <https://adbc-drivers-docs.arpe.io/> —
 installation, per-driver connection guides, authentication, data-type mappings,
 compatibility, and troubleshooting.
 
