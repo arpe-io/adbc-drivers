@@ -20,6 +20,12 @@
       "dbms": "Oracle",
       "lib": "arpeoracle_adbc_driver",
       "entrypoint": "AdbcDriverInit"
+    },
+    "arpenz": {
+      "display": "ArpeNetezza",
+      "dbms": "IBM Netezza",
+      "lib": "arpenz_adbc_driver",
+      "entrypoint": "AdbcDriverInit"
     }
   }
 }

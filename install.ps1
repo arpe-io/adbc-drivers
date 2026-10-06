@@ -47,6 +47,7 @@ $Registry = [ordered]@{
   arpemssql  = @{ display = "ArpeMSSQL";  dbms = "Microsoft SQL Server"; lib = "arpemssql_adbc_driver"  }
   arpepgsql = @{ display = "ArpePGSQL"; dbms = "PostgreSQL";           lib = "arpepgsql_adbc_driver" }
   arpeoracle  = @{ display = "ArpeOracle";  dbms = "Oracle";               lib = "arpeoracle_adbc_driver"  }
+  arpenz      = @{ display = "ArpeNetezza"; dbms = "IBM Netezza";          lib = "arpenz_adbc_driver"      }
 }
 
 function Write-Info { param([string]$m) Write-Host $m }
