@@ -47,7 +47,7 @@ $Registry = [ordered]@{
   arpemssql  = @{ display = "ArpeMSSQL";  dbms = "Microsoft SQL Server"; lib = "arpemssql_adbc_driver"  }
   arpepgsql = @{ display = "ArpePGSQL"; dbms = "PostgreSQL";           lib = "arpepgsql_adbc_driver" }
   arpeoracle  = @{ display = "ArpeOracle";  dbms = "Oracle";               lib = "arpeoracle_adbc_driver"  }
-  arpenetezza = @{ display = "ArpeNetezza"; dbms = "IBM Netezza";          lib = "arpenz_adbc_driver"      }
+  arpenz      = @{ display = "ArpeNetezza"; dbms = "IBM Netezza";          lib = "arpenz_adbc_driver"      }
 }
 
 function Write-Info { param([string]$m) Write-Host $m }
@@ -119,7 +119,7 @@ function Show-List {
   foreach ($name in $Registry.Keys) {
     $tag = Resolve-LatestTag $name
     $ver = if ($tag) { $tag.Substring("$name-v".Length) } else { "(not published yet)" }
-    Write-Info ("  {0,-12} {1,-22} {2}" -f $name, $Registry[$name].dbms, $ver)
+    Write-Info ("  {0,-10} {1,-22} {2}" -f $name, $Registry[$name].dbms, $ver)
   }
   Write-Info ""
   Write-Info "Install:  install.ps1 arpemssql -License C:\path\to\your.lic"
@@ -138,7 +138,7 @@ function Show-Version {
   foreach ($d in $drivers) {
     $vers = @(Resolve-Version $d)
     $shown = if ($vers.Count -gt 0) { $vers -join ", " } else { "(not published yet)" }
-    Write-Info ("  {0,-12} {1,-22} {2}" -f $d, $Registry[$d].dbms, $shown)
+    Write-Info ("  {0,-10} {1,-22} {2}" -f $d, $Registry[$d].dbms, $shown)
   }
   Write-Info ""
   Write-Info "Install a specific one:  install.ps1 <driver> -Version X.Y.Z"
@@ -534,7 +534,7 @@ function Show-Installed {
       $ver = Read-ManifestVersion $manifest; if (-not $ver) { $ver = "?" }
       $lp  = Read-ManifestLibPath $manifest
       $lic = if ($lp -and (Test-Path (Join-Path (Split-Path $lp -Parent) "arpeio_adbc.lic"))) { "yes" } else { "no" }
-      Write-Info ("  {0,-12} {1,-22} {2,-9} {3,-6} licence:{4,-4} {5}" -f `
+      Write-Info ("  {0,-10} {1,-22} {2,-9} {3,-6} licence:{4,-4} {5}" -f `
         $name, $Registry[$name].dbms, $ver, $scope, $lic, $lp)
     }
   }

@@ -22,7 +22,7 @@ compatibility, and troubleshooting.
 | Microsoft SQL Server (incl. Azure SQL, Fabric) | ArpeMSSQL | `arpemssql` | ✅ Published |
 | PostgreSQL | ArpePGSQL | `arpepgsql` | ✅ Published |
 | Oracle | ArpeOracle | `arpeoracle` | ✅ Published |
-| IBM Netezza | ArpeNetezza | `arpenetezza` | ✅ Published |
+| IBM Netezza | ArpeNetezza | `arpenz` | ✅ Published |
 | IBM Db2 | ArpeDb2 | `arpedb2` | 🚧 Coming soon |
 
 Only the drivers marked **Published** are downloadable today; run

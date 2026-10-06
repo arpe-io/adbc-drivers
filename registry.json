@@ -21,7 +21,7 @@
       "lib": "arpeoracle_adbc_driver",
       "entrypoint": "AdbcDriverInit"
     },
-    "arpenetezza": {
+    "arpenz": {
       "display": "ArpeNetezza",
       "dbms": "IBM Netezza",
       "lib": "arpenz_adbc_driver",

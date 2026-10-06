@@ -24,7 +24,7 @@ driver_field() {
     arpemssql)  _lib=arpemssql_adbc_driver;  _display=ArpeMSSQL;  _dbms="Microsoft SQL Server" ;;
     arpepgsql) _lib=arpepgsql_adbc_driver; _display=ArpePGSQL; _dbms="PostgreSQL" ;;
     arpeoracle)  _lib=arpeoracle_adbc_driver;  _display=ArpeOracle;  _dbms="Oracle" ;;
-    arpenetezza) _lib=arpenz_adbc_driver;      _display=ArpeNetezza; _dbms="IBM Netezza" ;;
+    arpenz)      _lib=arpenz_adbc_driver;      _display=ArpeNetezza; _dbms="IBM Netezza" ;;
     *) return 1 ;;
   esac
   case "$2" in
@@ -33,7 +33,7 @@ driver_field() {
     dbms) printf '%s\n' "$_dbms" ;;
   esac
 }
-ALL_DRIVERS="arpemssql arpepgsql arpeoracle arpenetezza"
+ALL_DRIVERS="arpemssql arpepgsql arpeoracle arpenz"
 
 # ---- helpers -----------------------------------------------------------------
 info() { printf '%s\n' "$*" >&2; }
@@ -257,7 +257,7 @@ do_list() {
   for d in $ALL_DRIVERS; do
     _tag=$(resolve_latest "$d" || true)
     if [ -n "${_tag:-}" ]; then _ver="${_tag#"$d"-v}"; else _ver="(not published yet)"; fi
-    printf '  %-12s %-22s %s\n' "$d" "$(driver_field "$d" dbms)" "$_ver" >&2
+    printf '  %-10s %-22s %s\n' "$d" "$(driver_field "$d" dbms)" "$_ver" >&2
   done
   info ""
   info "Install:  install.sh <driver> --license <your.lic>"
@@ -278,7 +278,7 @@ do_versions() {
     _joined=""
     for _v in $(resolve_versions "$d"); do _joined="${_joined:+$_joined, }$_v"; done
     [ -n "$_joined" ] || _joined="(not published yet)"
-    printf '  %-12s %-22s %s\n' "$d" "$(driver_field "$d" dbms)" "$_joined" >&2
+    printf '  %-10s %-22s %s\n' "$d" "$(driver_field "$d" dbms)" "$_joined" >&2
   done
   info ""
   info "Install a specific one:  install.sh <driver> --version <X.Y.Z>"
@@ -526,7 +526,7 @@ do_installed() {
       _ver=$(manifest_version_of "$_m"); [ -n "$_ver" ] || _ver="?"
       _lp=$(manifest_libpath_of "$_m")
       if [ -n "$_lp" ] && [ -f "$(dirname "$_lp")/arpeio_adbc.lic" ]; then _lic=yes; else _lic=no; fi
-      printf '  %-12s %-22s %-9s %-6s licence:%-4s %s\n' \
+      printf '  %-10s %-22s %-9s %-6s licence:%-4s %s\n' \
         "$d" "$(driver_field "$d" dbms)" "$_ver" "$_scope" "$_lic" "$_lp" >&2
     done
   done
