@@ -33,7 +33,8 @@ connection guide, data-type mapping, and compatibility matrix live on the
 [ArpeMSSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpemssql/),
 [ArpePGSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpepgsql/),
 [ArpeOracle](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeoracle/),
-[ArpeNetezza](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpenetezza/).
+[ArpeNetezza](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpenetezza/),
+[ArpeTeradata](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeteradata/).
 
 The driver *binaries* are published here as public GitHub Releases and are free
 to download. They are **licence-gated**: a driver requires a valid Arpeio licence
