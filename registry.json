@@ -26,6 +26,12 @@
       "dbms": "IBM Netezza",
       "lib": "arpenz_adbc_driver",
       "entrypoint": "AdbcDriverInit"
+    },
+    "arpeteradata": {
+      "display": "ArpeTeradata",
+      "dbms": "Teradata",
+      "lib": "arpeteradata_adbc_driver",
+      "entrypoint": "AdbcDriverInit"
     }
   }
 }

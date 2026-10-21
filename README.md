@@ -23,6 +23,7 @@ compatibility, and troubleshooting.
 | PostgreSQL | ArpePGSQL | `arpepgsql` | ✅ Published |
 | Oracle | ArpeOracle | `arpeoracle` | ✅ Published |
 | IBM Netezza | ArpeNetezza | `arpenz` | ✅ Published |
+| Teradata | ArpeTeradata | `arpeteradata` | ✅ Published |
 | IBM Db2 | ArpeDb2 | `arpedb2` | 🚧 Coming soon |
 
 Only the drivers marked **Published** are downloadable today; run
