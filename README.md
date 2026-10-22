@@ -23,6 +23,7 @@ compatibility, and troubleshooting.
 | PostgreSQL | ArpePGSQL | `arpepgsql` | ✅ Published |
 | Oracle | ArpeOracle | `arpeoracle` | ✅ Published |
 | IBM Netezza | ArpeNetezza | `arpenz` | ✅ Published |
+| Teradata | ArpeTeradata | `arpeteradata` | ✅ Published |
 | IBM Db2 | ArpeDb2 | `arpedb2` | 🚧 Coming soon |
 
 Only the drivers marked **Published** are downloadable today; run
@@ -32,7 +33,8 @@ connection guide, data-type mapping, and compatibility matrix live on the
 [ArpeMSSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpemssql/),
 [ArpePGSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpepgsql/),
 [ArpeOracle](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeoracle/),
-[ArpeNetezza](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpenetezza/).
+[ArpeNetezza](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpenetezza/),
+[ArpeTeradata](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeteradata/).
 
 The driver *binaries* are published here as public GitHub Releases and are free
 to download. They are **licence-gated**: a driver requires a valid Arpeio licence
