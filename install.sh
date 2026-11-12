@@ -26,6 +26,7 @@ driver_field() {
     arpeoracle)  _lib=arpeoracle_adbc_driver;  _display=ArpeOracle;  _dbms="Oracle" ;;
     arpenz)      _lib=arpenz_adbc_driver;      _display=ArpeNetezza; _dbms="IBM Netezza" ;;
     arpeteradata) _lib=arpeteradata_adbc_driver; _display=ArpeTeradata; _dbms="Teradata" ;;
+    arpedb2)     _lib=arpedb2_adbc_driver;     _display=ArpeDb2;     _dbms="IBM Db2" ;;
     *) return 1 ;;
   esac
   case "$2" in
@@ -34,7 +35,7 @@ driver_field() {
     dbms) printf '%s\n' "$_dbms" ;;
   esac
 }
-ALL_DRIVERS="arpemssql arpepgsql arpeoracle arpenz arpeteradata"
+ALL_DRIVERS="arpemssql arpepgsql arpeoracle arpenz arpeteradata arpedb2"
 
 # ---- helpers -----------------------------------------------------------------
 info() { printf '%s\n' "$*" >&2; }

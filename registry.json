@@ -32,6 +32,12 @@
       "dbms": "Teradata",
       "lib": "arpeteradata_adbc_driver",
       "entrypoint": "AdbcDriverInit"
+    },
+    "arpedb2": {
+      "display": "ArpeDb2",
+      "dbms": "IBM Db2",
+      "lib": "arpedb2_adbc_driver",
+      "entrypoint": "AdbcDriverInit"
     }
   }
 }

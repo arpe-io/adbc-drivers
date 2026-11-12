@@ -24,7 +24,7 @@ compatibility, and troubleshooting.
 | Oracle | ArpeOracle | `arpeoracle` | ✅ Published |
 | IBM Netezza | ArpeNetezza | `arpenz` | ✅ Published |
 | Teradata | ArpeTeradata | `arpeteradata` | ✅ Published |
-| IBM Db2 | ArpeDb2 | `arpedb2` | 🚧 Coming soon |
+| IBM Db2 | ArpeDb2 | `arpedb2` | ✅ Published |
 
 Only the drivers marked **Published** are downloadable today; run
 `… install.sh --list` for the authoritative, always-current list. Each driver's
