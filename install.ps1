@@ -58,7 +58,10 @@ function Fail { param([string]$m) Write-Error $m; exit 1 }
 function Get-PlatformArch {
   switch ($env:PROCESSOR_ARCHITECTURE) {
     "AMD64" { return @{ asset = "x64";   manifest = "amd64" } }
-    "ARM64" { return @{ asset = "arm64"; manifest = "arm64" } }
+    # arm64 is not published yet: releases carry x64 binaries only. Re-enable
+    # with this line once arm64 binaries are ready:
+    #   "ARM64" { return @{ asset = "arm64"; manifest = "arm64" } }
+    "ARM64" { Fail "arm64 is not supported yet (x64 only for now)" }
     default { Fail "unsupported architecture '$($env:PROCESSOR_ARCHITECTURE)'" }
   }
 }
@@ -67,6 +70,41 @@ function Get-PlatformArch {
 # registry; we install/scan a stable ProgramData dir added to ADBC_DRIVER_PATH.
 function Get-UserManifestDir   { Join-Path $env:LOCALAPPDATA "ADBC\Drivers" }
 function Get-SystemManifestDir { Join-Path $env:ProgramData "arpeio-adbc\adbc\drivers" }
+
+# Where a driver's library goes for a scope when -Prefix is not given.
+function Get-DefaultLibDir {
+  param([string]$name, [string]$scope)
+  if ($scope -eq "system") { return (Join-Path $env:ProgramFiles "arpeio-adbc\$name") }
+  return (Join-Path $env:LOCALAPPDATA "arpeio-adbc\$name")
+}
+
+# The value ADBC_DRIVER_PATH must take for $dir to be on it. On Windows the
+# variable is a semicolon-separated list of directories, and other software may
+# have put its own there: the existing entries are kept and $dir is appended,
+# unless it is already listed (compared without case or a trailing backslash),
+# in which case $current is returned unchanged.
+function Join-DriverPath {
+  param([string]$current, [string]$dir)
+  $wanted = $dir.Trim().TrimEnd('\')
+  $entries = @($current -split ';' | Where-Object { $_.Trim() })
+  foreach ($e in $entries) {
+    if ($e.Trim().TrimEnd('\') -ieq $wanted) { return $current }
+  }
+  return (@($entries) + $dir) -join ';'
+}
+
+# Put the system manifest dir on the machine ADBC_DRIVER_PATH (-Scope system).
+function Add-MachineDriverPath {
+  param([string]$mandir)
+  $current = [Environment]::GetEnvironmentVariable("ADBC_DRIVER_PATH", "Machine")
+  $wanted = Join-DriverPath $current $mandir
+  if ($wanted -ceq $current) {
+    Write-Info "  ($mandir is already on the machine ADBC_DRIVER_PATH)"
+  } else {
+    [Environment]::SetEnvironmentVariable("ADBC_DRIVER_PATH", $wanted, "Machine")
+    Write-Info "  (added $mandir to the machine ADBC_DRIVER_PATH; open a new shell)"
+  }
+}
 
 # Read fields back out of an installed manifest (source of truth for uninstall).
 function Read-ManifestVersion {
@@ -89,6 +127,56 @@ function Read-ManifestLibPath {
   return $null
 }
 
+# The tag of EVERY release of the dist repo, loaded once per run. The API serves
+# at most 100 releases per page and all the drivers share the one listing, so
+# every page is read: stopping at the first would hide the drivers whose latest
+# release sits further down. A page that cannot be fetched is fatal - a partial
+# listing would silently report the wrong "latest".
+# The cache is a hashtable changed in place (not a $script: variable), so that it
+# is this run's own whichever way the script was started (file, iex, scriptblock).
+# If GITHUB_TOKEN (or GH_TOKEN) is set it is sent with the listing, which lifts
+# GitHub's limit of 60 unauthenticated requests per hour per IP address - the limit
+# shared CI runners run into. The token goes to the API only: binary downloads
+# never carry it.
+$ReleaseCache = @{ Tags = $null }
+$ReleasePageSize = 100
+$ReleaseMaxPages = 50
+function Get-ReleaseTag {
+  if ($null -ne $ReleaseCache.Tags) { return $ReleaseCache.Tags }
+  $tags = @()
+  $headers = @{ "User-Agent" = "arpeio-adbc-installer" }
+  $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_TOKEN }
+  if ($token) { $headers["Authorization"] = "Bearer $token" }
+  for ($page = 1; ; $page++) {
+    if ($page -gt $ReleaseMaxPages) {
+      Fail "the GitHub API release listing of $DistRepo does not end after $ReleaseMaxPages pages - giving up"
+    }
+    $rels = $null
+    $failure = $null
+    # Catch everything: the exception type differs between Windows PowerShell 5.1
+    # and PowerShell 7. Fail is called outside the try so it is not caught here.
+    try {
+      $rels = Invoke-RestMethod -Uri "${Api}?per_page=$ReleasePageSize&page=$page" -Headers $headers
+    } catch {
+      $failure = "$_"
+    }
+    if ($failure) {
+      Fail ("could not list the releases of $DistRepo from the GitHub API: $failure`n" +
+            "  (no network access, or GitHub's limit of 60 unauthenticated requests per hour`n" +
+            "  per IP address was reached). Retry later, set GITHUB_TOKEN to a GitHub token to`n" +
+            "  lift that limit, or install a specific version, which needs no API call:`n" +
+            "    install.ps1 <driver> -Version X.Y.Z")
+    }
+    $count = 0
+    foreach ($r in $rels) {
+      if ($r -and $r.tag_name) { $tags += $r.tag_name; $count++ }
+    }
+    if ($count -lt $ReleasePageSize) { break }   # a short page is the last one
+  }
+  $ReleaseCache.Tags = $tags
+  return $tags
+}
+
 # All published STABLE versions for a driver, highest version first (empty array
 # if none), without the "<name>-v" tag prefix. The versions are sorted here,
 # number by number: the order GitHub lists releases in is not the order they
@@ -97,11 +185,10 @@ function Read-ManifestLibPath {
 # install one explicitly with -Version 0.5.19-rc1.
 function Resolve-Version {
   param([string]$name)
-  $rels = Invoke-RestMethod -Uri "${Api}?per_page=100" -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
   $out = @()
-  foreach ($r in $rels) {
-    if ($r.tag_name -like "$name-v*") {
-      $rest = $r.tag_name.Substring("$name-v".Length)
+  foreach ($tag in @(Get-ReleaseTag)) {
+    if ($tag -like "$name-v*") {
+      $rest = $tag.Substring("$name-v".Length)
       if ($rest -notmatch '-') { $out += $rest }
     }
   }
@@ -121,15 +208,61 @@ function Resolve-LatestTag {
   return $null
 }
 
+# The install.ps1 arguments that re-install $name exactly where it is installed
+# now: same scope, and the same -Prefix if it was installed with one. Installing
+# over the same directory is what keeps the licence file in place.
+function Get-UpdateArgument {
+  param([string]$name, [string]$scope, [string]$libpath)
+  $cmd = $name
+  if ($scope -eq "system") { $cmd += " -Scope system" }
+  if ($libpath) {
+    $libdir = Split-Path -Parent $libpath
+    if (($libdir -ine (Get-DefaultLibDir $name $scope)) -and ((Split-Path -Leaf $libdir) -ieq $name)) {
+      $prefix = Split-Path -Parent $libdir
+      # Quoted when it holds a space, so the command can be pasted as is.
+      if ($prefix -match '\s') { $cmd += " -Prefix '$prefix'" } else { $cmd += " -Prefix $prefix" }
+    }
+  }
+  return $cmd
+}
+
+# List the available drivers with their latest published version and, for the
+# ones installed on this machine, the installed version and whether it is
+# behind - followed by the command that updates each outdated one.
 function Show-List {
   Write-Info "Available Arpeio ADBC drivers (dist: $DistRepo):"
   Write-Info ""
+  $updates = @()
   foreach ($name in $Registry.Keys) {
     $tag = Resolve-LatestTag $name
     $ver = if ($tag) { $tag.Substring("$name-v".Length) } else { "(not published yet)" }
-    Write-Info ("  {0,-12} {1,-22} {2}" -f $name, $Registry[$name].dbms, $ver)
+    $note = ""
+    foreach ($scope in @("user", "system")) {
+      $mdir = if ($scope -eq "system") { Get-SystemManifestDir } else { Get-UserManifestDir }
+      $manifest = Join-Path $mdir "$name.toml"
+      if (-not (Test-Path $manifest)) { continue }
+      $installed = Read-ManifestVersion $manifest
+      if (-not $installed) { continue }
+      $state = ""
+      if ($tag) {
+        $vi = $null; $vl = $null
+        if ($installed -eq $ver) {
+          $state = " (up to date)"
+        } elseif ([version]::TryParse($installed, [ref]$vi) -and [version]::TryParse($ver, [ref]$vl) -and ($vi -lt $vl)) {
+          $state = " (update available)"
+          $updates += "  install.ps1 " + (Get-UpdateArgument $name $scope (Read-ManifestLibPath $manifest))
+        }
+      }
+      $note += "   installed $installed, $scope$state"
+    }
+    Write-Info ("  {0,-12} {1,-22} {2,-8}{3}" -f $name, $Registry[$name].dbms, $ver, $note)
   }
   Write-Info ""
+  if ($updates.Count -gt 0) {
+    Write-Info "Update with (your licence file stays in place):"
+    foreach ($u in $updates) { Write-Info $u }
+    Write-Info ""
+  }
   Write-Info "Install:  install.ps1 arpemssql -License C:\path\to\your.lic"
 }
 
@@ -159,7 +292,9 @@ Arpeio ADBC driver installer (Windows)
 Usage:
   install.ps1 <driver> [-Version <X.Y.Z|latest>] [-Scope user|system]
               [-License <path> | -LicenseContent <text>] [-Prefix <dir>]
+              [-SkipChecksum]
   install.ps1 <driver> -DownloadOnly [-Version <X.Y.Z|latest>] [-Dir <path>]
+              [-SkipChecksum]
   install.ps1 <driver> -Offline [-Dir <path>] [-Version <X.Y.Z>] [-Scope user|system]
               [-License <path> | -LicenseContent <text>] [-Prefix <dir>]
               [-SkipChecksum]
@@ -183,9 +318,10 @@ Drivers: $($Registry.Keys -join ', ')
                    from the bundled manifest unless -Version is given.
   -Dir             Bundle directory: destination for -DownloadOnly, source for
                    -Offline (default: current dir).
-  -SkipChecksum    (-Offline only) Install without checksum verification. Use only
-                   if the bundle has no SHA256SUMS on purpose; otherwise a missing
-                   SHA256SUMS is treated as an incomplete bundle and fails.
+  -SkipChecksum    Continue without checksum verification. By default the download
+                   (or, with -Offline, the bundle) is verified against the release
+                   SHA256SUMS, and a SHA256SUMS that is missing or cannot be
+                   downloaded stops the command.
   -Versions        List every published version of each driver (or one driver,
                    if named), newest first.
   -Installed       List the drivers installed on this machine (both scopes by
@@ -197,6 +333,10 @@ Licence sources are tried in order: -License, -LicenseContent,
 `$env:ARPEIO_ADBC_LICENCE_FILE (a path), `$env:ARPEIO_ADBC_LICENCE (the content).
 The downloaded binary is licence-gated: it needs a valid Arpeio licence at
 runtime. There is no trial build.
+
+Finding the latest version reads the public GitHub API. If `$env:GITHUB_TOKEN (or
+`$env:GH_TOKEN) is set, it is sent with that call only, which lifts GitHub's limit
+of 60 unauthenticated requests per hour per IP address (useful in CI).
 "@
 }
 
@@ -243,24 +383,36 @@ function Test-LocalChecksum {
   Write-Info "  checksum OK"
 }
 
-# Verify $dest against the release SHA256SUMS (best-effort): a missing SHA256SUMS
-# is only a warning, but a checksum mismatch (or a SHA256SUMS with no entry for
-# the asset) is fatal.
+# Verify $dest against the release SHA256SUMS, which is saved to $sumsFile. Every
+# release ships a SHA256SUMS, so one that cannot be downloaded is fatal, like a
+# mismatch or a SHA256SUMS with no entry for the asset: an unverified binary is
+# never installed silently. -SkipChecksum turns the whole check off.
 function Test-Checksum {
-  param([string]$sumsUrl, [string]$asset, [string]$tmp, [string]$dest)
-  try {
-    # Download to a file and read it back as text. On Windows PowerShell 5.1,
-    # Invoke-WebRequest returns .Content as a byte[] (not a string) for
-    # application/octet-stream responses like SHA256SUMS, so an in-memory
-    # `.Content -split` splits each byte individually and never matches.
-    # -OutFile + Get-Content -Raw always yields text; -UseBasicParsing also
-    # avoids the IE DOM parser (the "risque d'execution de script" prompt) on 5.1.
-    $sumsFile = Join-Path $tmp "SHA256SUMS"
-    Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-    Test-LocalChecksum $sumsFile $asset $dest
-  } catch [System.Net.WebException] {
-    Write-Info "  warning: no SHA256SUMS in the release - skipping checksum verification"
+  param([string]$sumsUrl, [string]$asset, [string]$dest, [string]$sumsFile)
+  if ($SkipChecksum) {
+    Write-Info "  warning: -SkipChecksum given - continuing without checksum verification"
+    return
   }
+  # Download to a file and read it back as text. On Windows PowerShell 5.1,
+  # Invoke-WebRequest returns .Content as a byte[] (not a string) for
+  # application/octet-stream responses like SHA256SUMS, so an in-memory
+  # `.Content -split` splits each byte individually and never matches.
+  # -OutFile + Get-Content -Raw always yields text; -UseBasicParsing also
+  # avoids the IE DOM parser (the "risque d'execution de script" prompt) on 5.1.
+  # Catch everything: the exception type differs between Windows PowerShell 5.1
+  # and PowerShell 7. Fail is called outside the try so it is not caught here.
+  $failure = $null
+  try {
+    Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+  } catch {
+    $failure = "$_"
+  }
+  if ($failure) {
+    Fail ("could not download the release SHA256SUMS, so the download cannot be verified: $failure`n" +
+          "  ($sumsUrl)`n" +
+          "  re-run the command, or pass -SkipChecksum to continue without verification")
+  }
+  Test-LocalChecksum $sumsFile $asset $dest
 }
 
 # Write the ADBC driver manifest for $name at $manifestFile, pointing at $libpath.
@@ -307,13 +459,12 @@ function Install-Driver {
   $sumsUrl = "$Dl/$tag/SHA256SUMS"
   $manifestKey = "windows_$($arch.manifest)"
 
-  if ($Prefix)              { $libdir = Join-Path $Prefix $name }
-  elseif ($Scope -eq "system") { $libdir = Join-Path $env:ProgramFiles "arpeio-adbc\$name" }
-  else                      { $libdir = Join-Path $env:LOCALAPPDATA "arpeio-adbc\$name" }
+  if ($Prefix) { $libdir = Join-Path $Prefix $name }
+  else         { $libdir = Get-DefaultLibDir $name $Scope }
 
   # No auto-searched system directory exists on Windows for .toml manifests (the
   # system mechanism is the registry); -Scope system installs to a stable
-  # ProgramData dir added to the machine ADBC_DRIVER_PATH.
+  # ProgramData dir appended to the machine ADBC_DRIVER_PATH.
   if ($Scope -eq "system") { $mandir = Get-SystemManifestDir } else { $mandir = Get-UserManifestDir }
 
   Write-Info "Installing $name $ver ($manifestKey)"
@@ -323,7 +474,7 @@ function Install-Driver {
   try {
     $dest = Join-Path $tmp $asset
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-    Test-Checksum $sumsUrl $asset $tmp $dest
+    Test-Checksum $sumsUrl $asset $dest (Join-Path $tmp "SHA256SUMS")
 
     New-Item -ItemType Directory -Force -Path $libdir, $mandir | Out-Null
     $libpath = Join-Path $libdir $asset
@@ -341,8 +492,7 @@ function Install-Driver {
     Write-Info "  library:  $libpath"
     Write-Info "  manifest: $manifestFile"
     if ($Scope -eq "system") {
-      [Environment]::SetEnvironmentVariable("ADBC_DRIVER_PATH", $mandir, "Machine")
-      Write-Info "  (added $mandir to the machine ADBC_DRIVER_PATH; open a new shell)"
+      Add-MachineDriverPath $mandir
     }
     if (-not (Test-Path $licDest)) {
       Write-Info ""
@@ -400,12 +550,7 @@ function Save-Driver {
     # Save SHA256SUMS into the bundle (not the temp dir) so it can be verified later
     # by an offline install (see -Offline).
     $sumsFile = Join-Path $destdir "SHA256SUMS"
-    try {
-      Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-      Test-LocalChecksum $sumsFile $asset $dest
-    } catch [System.Net.WebException] {
-      Write-Info "  warning: no SHA256SUMS in the release - skipping checksum verification"
-    }
+    Test-Checksum $sumsUrl $asset $dest $sumsFile
 
     $libpath = Join-Path $destdir $asset
     Move-Item -Force $dest $libpath
@@ -417,7 +562,7 @@ function Save-Driver {
     Write-Info "Downloaded:"
     Write-Info "  library:   $libpath"
     Write-Info "  manifest:  $manifestFile"
-    Write-Info "  checksums: $sumsFile"
+    if (Test-Path $sumsFile) { Write-Info "  checksums: $sumsFile" }
     Write-Info ""
     Write-Info "To load it by name, point the ADBC driver manager at this directory:"
     Write-Info "  setx ADBC_DRIVER_PATH `"$destdir`""
@@ -472,9 +617,8 @@ function Install-DriverOffline {
     Fail "cannot determine the version offline: no $bundleManifest in the bundle and no -Version (pass -Version X.Y.Z)"
   }
 
-  if ($Prefix)                 { $libdir = Join-Path $Prefix $name }
-  elseif ($Scope -eq "system") { $libdir = Join-Path $env:ProgramFiles "arpeio-adbc\$name" }
-  else                         { $libdir = Join-Path $env:LOCALAPPDATA "arpeio-adbc\$name" }
+  if ($Prefix) { $libdir = Join-Path $Prefix $name }
+  else         { $libdir = Get-DefaultLibDir $name $Scope }
   if ($Scope -eq "system") { $mandir = Get-SystemManifestDir } else { $mandir = Get-UserManifestDir }
 
   Write-Info "Installing $name $ver ($manifestKey) - offline from $srcdir"
@@ -509,8 +653,7 @@ function Install-DriverOffline {
   Write-Info "  library:  $libpath"
   Write-Info "  manifest: $manifestFile"
   if ($Scope -eq "system") {
-    [Environment]::SetEnvironmentVariable("ADBC_DRIVER_PATH", $mandir, "Machine")
-    Write-Info "  (added $mandir to the machine ADBC_DRIVER_PATH; open a new shell)"
+    Add-MachineDriverPath $mandir
   }
   if (-not (Test-Path $licDest)) {
     Write-Info ""

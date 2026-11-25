@@ -43,8 +43,19 @@ err()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# GitHub API call. If GITHUB_TOKEN (or GH_TOKEN) is set it is sent along, which
+# lifts GitHub's limit of 60 unauthenticated requests per hour per IP address —
+# the limit shared CI runners run into. The token goes to the API only: binary
+# downloads (download, below) never carry it.
 fetch() { # url -> stdout
-  if have curl; then curl -fsSL "$1"; else wget -qO- "$1"; fi
+  _token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  if have curl; then
+    if [ -n "$_token" ]; then curl -fsSL -H "Authorization: Bearer $_token" "$1"
+    else curl -fsSL "$1"; fi
+  else
+    if [ -n "$_token" ]; then wget -qO- --header="Authorization: Bearer $_token" "$1"
+    else wget -qO- "$1"; fi
+  fi
 }
 download() { # url dest
   if have curl; then curl -fSL --retry 3 -o "$2" "$1"; else wget -q -O "$2" "$1"; fi
@@ -67,20 +78,26 @@ verify_local_checksum() { # <sums_file> <asset> <asset_path>
   info "  checksum OK"
 }
 
-# Verify $tmp/$asset against the release SHA256SUMS (best-effort): a missing
-# SHA256SUMS is only a warning, but a checksum mismatch — or a SHA256SUMS with no
-# entry for the asset — is fatal.
-verify_checksum() { # <sums_url> <asset> <tmp>
-  _sums_url=$1; _asset=$2; _tmp=$3
-  if download "$_sums_url" "$_tmp/SHA256SUMS" 2>/dev/null; then
-    verify_local_checksum "$_tmp/SHA256SUMS" "$_asset" "$_tmp/$_asset"
-  else
-    info "  warning: no SHA256SUMS in the release — skipping checksum verification"
+# Verify <asset_path> against the release SHA256SUMS, which is saved to
+# <sums_dest>. Every release ships a SHA256SUMS, so one that cannot be downloaded
+# is fatal, like a mismatch or a SHA256SUMS with no entry for the asset: an
+# unverified binary is never installed silently. --skip-checksum turns the whole
+# check off.
+verify_checksum() { # <sums_url> <asset> <asset_path> <sums_dest>
+  _sums_url=$1; _asset=$2; _path=$3; _sums_dest=$4
+  if [ "$SKIP_CHECKSUM" = 1 ]; then
+    info "  warning: --skip-checksum given — continuing without checksum verification"
+    return 0
   fi
+  download "$_sums_url" "$_sums_dest" 2>/dev/null \
+    || err "could not download the release SHA256SUMS, so the download cannot be verified
+  ($_sums_url)
+  re-run the command, or pass --skip-checksum to continue without verification"
+  verify_local_checksum "$_sums_dest" "$_asset" "$_path"
 }
 
 # Detect OS + the two arch spellings we need:
-#   ASSET_ARCH  (x64/arm64)   — used in the release asset filename
+#   ASSET_ARCH  (x64)         — used in the release asset filename
 #   MANIFEST_KEY (linux_amd64…) — the ADBC driver-manager platform tuple
 detect_platform() {
   _os=$(uname -s); _machine=$(uname -m)
@@ -94,10 +111,52 @@ detect_platform() {
   esac
   case "$_machine" in
     x86_64|amd64) ASSET_ARCH=x64;   MANIFEST_ARCH=amd64 ;;
-    arm64|aarch64) ASSET_ARCH=arm64; MANIFEST_ARCH=arm64 ;;
+    # arm64 is not published yet: releases carry x64 binaries only. Re-enable
+    # with this line once arm64 binaries are ready:
+    #   arm64|aarch64) ASSET_ARCH=arm64; MANIFEST_ARCH=arm64 ;;
+    arm64|aarch64) err "arm64 is not supported yet (x64 only for now)" ;;
     *) err "unsupported architecture '$_machine'" ;;
   esac
   MANIFEST_KEY="${OS_MANIFEST}_${MANIFEST_ARCH}"
+}
+
+# Load the tag of EVERY release of the dist repo into RELEASE_TAGS, one per
+# line, once per run. The API serves at most 100 releases per page and all the
+# drivers share the one listing, so every page is read: stopping at the first
+# would hide the drivers whose latest release sits further down. A page that
+# cannot be fetched is fatal — a partial listing would silently report the wrong
+# "latest". Call this from the main shell before resolve_versions/resolve_latest
+# so the error stops the run (those two are used inside pipelines and $(...)).
+RELEASE_TAGS=""
+RELEASE_TAGS_LOADED=0
+RELEASE_PAGE_SIZE=100
+RELEASE_MAX_PAGES=50
+load_release_tags() {
+  [ "$RELEASE_TAGS_LOADED" = 1 ] && return 0
+  RELEASE_TAGS=""
+  _p=1
+  while :; do
+    [ "$_p" -le "$RELEASE_MAX_PAGES" ] \
+      || err "the GitHub API release listing of ${DIST_REPO} does not end after ${RELEASE_MAX_PAGES} pages — giving up"
+    _page=$(fetch "${API}?per_page=${RELEASE_PAGE_SIZE}&page=${_p}") \
+      || err "could not list the releases of ${DIST_REPO} from the GitHub API
+  (no network access, or GitHub's limit of 60 unauthenticated requests per hour
+  per IP address was reached). Retry later, set GITHUB_TOKEN to a GitHub token to
+  lift that limit, or install a specific version, which needs no API call:
+    install.sh <driver> --version <X.Y.Z>"
+    _tags=$(printf '%s\n' "$_page" | grep '"tag_name":' \
+      | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' || true)
+    _n=0
+    if [ -n "$_tags" ]; then
+      # Pages are joined with an explicit newline: $(...) strips the trailing one.
+      RELEASE_TAGS="${RELEASE_TAGS}${_tags}
+"
+      _n=$(printf '%s\n' "$_tags" | grep -c .)
+    fi
+    [ "$_n" -ge "$RELEASE_PAGE_SIZE" ] || break   # a short page is the last one
+    _p=$((_p + 1))
+  done
+  RELEASE_TAGS_LOADED=1
 }
 
 # All published STABLE versions for a driver, highest version first (empty if
@@ -107,9 +166,8 @@ detect_platform() {
 # Prereleases — any version carrying a hyphen, e.g. 0.5.19-rc1 — are skipped;
 # install one explicitly with `--version 0.5.19-rc1`.
 resolve_versions() {
-  fetch "${API}?per_page=100" \
-    | grep '"tag_name":' \
-    | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' \
+  load_release_tags
+  printf '%s' "$RELEASE_TAGS" \
     | grep "^$1-v" \
     | while IFS= read -r _t; do
         case "${_t#"$1"-v}" in
@@ -133,7 +191,9 @@ Arpeio ADBC driver installer
 Usage:
   install.sh <driver> [--version <X.Y.Z|latest>] [--user|--system]
              [--license <path> | --license-content <text>] [--prefix <dir>]
+             [--skip-checksum]
   install.sh <driver> --download-only [--version <X.Y.Z|latest>] [--dir <path>]
+             [--skip-checksum]
   install.sh <driver> --offline [--dir <path>] [--version <X.Y.Z>] [--user|--system]
              [--license <path> | --license-content <text>] [--prefix <dir>]
              [--skip-checksum]
@@ -167,15 +227,16 @@ Options:
                      is read from the bundled manifest unless --version is given.
   --dir              Bundle directory: destination for --download-only, source for
                      --offline (default: current dir).
-  --skip-checksum    (--offline only) Install without checksum verification. Use
-                     only if the bundle has no SHA256SUMS on purpose; otherwise a
-                     missing SHA256SUMS is treated as an incomplete bundle and
-                     fails.
+  --skip-checksum    Continue without checksum verification. By default the
+                     download (or, with --offline, the bundle) is verified against
+                     the release SHA256SUMS, and a SHA256SUMS that is missing or
+                     cannot be downloaded stops the command.
   --installed        List the drivers installed on this machine (both scopes by
                      default; narrow with --user/--system).
   --uninstall        Remove a driver: its library, copied licence, and manifest.
                      Acts on the user scope by default; --system for a machine one.
-  --list             List the available drivers and their latest published versions.
+  --list             List the available drivers and their latest published versions,
+                     with the installed version of each and how to update it.
   --versions         List every published version of each driver (or one driver,
                      if named), newest first.
 
@@ -183,10 +244,19 @@ Licence sources are tried in this order: --license, --license-content,
 \$ARPEIO_ADBC_LICENCE_FILE (a path), \$ARPEIO_ADBC_LICENCE (the content). The
 downloaded binary is licence-gated: it needs a valid Arpeio licence at runtime.
 There is no trial build.
+
+Finding the latest version reads the public GitHub API. If \$GITHUB_TOKEN (or
+\$GH_TOKEN) is set, it is sent with that call only, which lifts GitHub's limit
+of 60 unauthenticated requests per hour per IP address (useful in CI).
 EOF
 }
 
 # ---- manifest + install locations --------------------------------------------
+# Where a driver's library goes for a scope when --prefix is not given.
+default_libdir() { # <name> <scope>
+  if [ "$2" = system ]; then printf '%s\n' "/opt/arpeio-adbc/$1"
+  else printf '%s\n' "$HOME/.local/lib/arpeio-adbc/$1"; fi
+}
 user_manifest_dir() {
   # macOS branch parked until macOS binaries ship (see detect_platform):
   #   if [ "$OS_MANIFEST" = macos ]; then
@@ -254,17 +324,68 @@ install_license() { # <libdir>
   fi
 }
 
+# The higher of two versions, compared number by number.
+version_max() { # <a> <b>
+  printf '%s\n%s\n' "$1" "$2" | sort -t . -k 1,1nr -k 2,2nr -k 3,3nr -k 4,4nr | head -n1
+}
+
+# The install.sh arguments that re-install <name> exactly where it is installed
+# now: same scope, and the same --prefix if it was installed with one. Installing
+# over the same directory is what keeps the licence file in place.
+update_args() { # <name> <scope> <libpath>
+  _ua=$1
+  if [ "$2" = system ]; then _ua="$_ua --system"; fi
+  _ld=$(dirname "$3")
+  if [ "$_ld" != "$(default_libdir "$1" "$2")" ] && [ "$(basename "$_ld")" = "$1" ]; then
+    _pf=$(dirname "$_ld")
+    case "$_pf" in
+      *[[:space:]]*) _ua="$_ua --prefix \"$_pf\"" ;;   # quoted so it can be pasted
+      *) _ua="$_ua --prefix $_pf" ;;
+    esac
+  fi
+  printf '%s\n' "$_ua"
+}
+
 # ---- commands ----------------------------------------------------------------
+# List the available drivers with their latest published version and, for the
+# ones installed on this machine, the installed version and whether it is
+# behind — followed by the command that updates each outdated one.
 do_list() {
   detect_platform
+  load_release_tags
   info "Available Arpeio ADBC drivers (dist: ${DIST_REPO}):"
   info ""
+  _updates=""
   for d in $ALL_DRIVERS; do
     _tag=$(resolve_latest "$d" || true)
     if [ -n "${_tag:-}" ]; then _ver="${_tag#"$d"-v}"; else _ver="(not published yet)"; fi
-    printf '  %-12s %-22s %s\n' "$d" "$(driver_field "$d" dbms)" "$_ver" >&2
+    _note=""
+    for _scope in user system; do
+      if [ "$_scope" = user ]; then _mdir=$(user_manifest_dir); else _mdir=$(system_manifest_dir); fi
+      _m="$_mdir/$d.toml"
+      [ -f "$_m" ] || continue
+      _iv=$(manifest_version_of "$_m")
+      [ -n "$_iv" ] || continue
+      _state=""
+      if [ -n "${_tag:-}" ]; then
+        if [ "$_iv" = "$_ver" ]; then
+          _state=" (up to date)"
+        elif [ "$(version_max "$_iv" "$_ver")" = "$_ver" ]; then
+          _state=" (update available)"
+          _updates="${_updates}  install.sh $(update_args "$d" "$_scope" "$(manifest_libpath_of "$_m")")
+"
+        fi
+      fi
+      _note="${_note}   installed ${_iv}, ${_scope}${_state}"
+    done
+    printf '  %-12s %-22s %-8s%s\n' "$d" "$(driver_field "$d" dbms)" "$_ver" "$_note" >&2
   done
   info ""
+  if [ -n "$_updates" ]; then
+    info "Update with (your licence file stays in place):"
+    printf '%s' "$_updates" >&2
+    info ""
+  fi
   info "Install:  install.sh <driver> --license <your.lic>"
 }
 
@@ -277,6 +398,7 @@ do_versions() {
   else
     _drivers=$ALL_DRIVERS
   fi
+  load_release_tags
   info "Published Arpeio ADBC driver versions (dist: ${DIST_REPO}):"
   info ""
   for d in $_drivers; do
@@ -296,6 +418,7 @@ do_install() {
 
   # Resolve version -> tag.
   if [ "$VERSION" = latest ]; then
+    load_release_tags
     tag=$(resolve_latest "$name" || true)
     [ -n "${tag:-}" ] || err "no published release for '$name' yet"
   else
@@ -310,8 +433,7 @@ do_install() {
 
   # Install locations.
   if [ -n "${PREFIX:-}" ]; then libdir="$PREFIX/$name"
-  elif [ "$SCOPE" = system ]; then libdir="/opt/arpeio-adbc/$name"
-  else libdir="$HOME/.local/lib/arpeio-adbc/$name"; fi
+  else libdir=$(default_libdir "$name" "$SCOPE"); fi
   if [ "$SCOPE" = system ]; then mandir=$(system_manifest_dir); else mandir=$(user_manifest_dir); fi
 
   info "Installing ${name} ${ver} (${MANIFEST_KEY})"
@@ -320,7 +442,7 @@ do_install() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/arpeio-adbc.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT INT TERM
   download "$url" "$tmp/$asset" || err "download failed (is ${name} ${ver} published for ${OS_ASSET}-${ASSET_ARCH}?)"
-  verify_checksum "$sums_url" "$asset" "$tmp"
+  verify_checksum "$sums_url" "$asset" "$tmp/$asset" "$tmp/SHA256SUMS"
 
   mkdir -p "$libdir" "$mandir" || err "cannot create install dirs (try --user, or sudo for --system)"
   libpath="$libdir/$asset"
@@ -367,6 +489,7 @@ do_download() {
 
   # Resolve version -> tag (same as do_install).
   if [ "$VERSION" = latest ]; then
+    load_release_tags
     tag=$(resolve_latest "$name" || true)
     [ -n "${tag:-}" ] || err "no published release for '$name' yet"
   else
@@ -393,11 +516,7 @@ do_download() {
   download "$url" "$tmp/$asset" || err "download failed (is ${name} ${ver} published for ${OS_ASSET}-${ASSET_ARCH}?)"
   # Save SHA256SUMS into the bundle (not the temp dir) so it can be verified later
   # by an offline install (see --offline).
-  if download "$sums_url" "$destdir/SHA256SUMS" 2>/dev/null; then
-    verify_local_checksum "$destdir/SHA256SUMS" "$asset" "$tmp/$asset"
-  else
-    info "  warning: no SHA256SUMS in the release — skipping checksum verification"
-  fi
+  verify_checksum "$sums_url" "$asset" "$tmp/$asset" "$destdir/SHA256SUMS"
 
   libpath="$destdir/$asset"
   mv "$tmp/$asset" "$libpath"
@@ -410,7 +529,7 @@ do_download() {
   info "Downloaded:"
   info "  library:   $libpath"
   info "  manifest:  $manifest"
-  info "  checksums: $destdir/SHA256SUMS"
+  if [ -f "$destdir/SHA256SUMS" ]; then info "  checksums: $destdir/SHA256SUMS"; fi
   info ""
   info "To load it by name, point the ADBC driver manager at this directory:"
   info "  export ADBC_DRIVER_PATH=$destdir"
@@ -459,8 +578,7 @@ do_offline() {
 
   # Install locations (identical to do_install).
   if [ -n "${PREFIX:-}" ]; then libdir="$PREFIX/$name"
-  elif [ "$SCOPE" = system ]; then libdir="/opt/arpeio-adbc/$name"
-  else libdir="$HOME/.local/lib/arpeio-adbc/$name"; fi
+  else libdir=$(default_libdir "$name" "$SCOPE"); fi
   if [ "$SCOPE" = system ]; then mandir=$(system_manifest_dir); else mandir=$(user_manifest_dir); fi
 
   info "Installing ${name} ${ver} (${MANIFEST_KEY}) — offline from ${srcdir}"
