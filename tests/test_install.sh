@@ -30,7 +30,11 @@ printf '    "tag_name": "arpeteradata-v0.3.6",\n' >> "$FIXTURE"
 # Mocks, written to a file so every test subshell can load the same ones.
 # - fetch: serves the fixture 100 tags per page, honouring `page=N`; counts its
 #   calls in $CALLS; fails on page $FAIL_PAGE when that is set.
-# - download: always fails, so no test ever touches the network or installs.
+# - download: fails unless DL_MODE=ok, so no test ever touches the network. With
+#   DL_MODE=ok it writes a fake driver binary, and for SHA256SUMS a matching
+#   checksum line — or none at all (SUMS_MODE=missing) or a wrong one (=bad).
+# - uname: a Linux x64 machine, whatever the tests really run on.
+# - system_manifest_dir: under the scratch dir, never the real /etc.
 cat > "$WORK/mocks.sh" <<'EOF'
 fetch() {
   printf 'x\n' >> "$CALLS"
@@ -38,24 +42,41 @@ fetch() {
   if [ "${FAIL_PAGE:-0}" = "$_pg" ]; then return 22; fi
   awk -v p="$_pg" 'NR > (p - 1) * 100 && NR <= p * 100' "$FIXTURE"
 }
-download() { return 1; }
+download() {
+  [ "${DL_MODE:-fail}" = ok ] || return 1
+  case "$1" in
+    */SHA256SUMS)
+      case "${SUMS_MODE:-ok}" in
+        missing) return 1 ;;
+        bad) printf '%s  %s\n' 0000000000000000 "$LAST_ASSET" > "$2" ;;
+        *)   printf '%s  %s\n' "$(sha256_of "$LAST_PATH")" "$LAST_ASSET" > "$2" ;;
+      esac ;;
+    *) printf 'driver binary from %s\n' "$1" > "$2"; LAST_PATH=$2; LAST_ASSET=${2##*/} ;;
+  esac
+}
+uname() { case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac; }
+system_manifest_dir() { printf '%s\n' "$SYSROOT/etc/adbc/drivers"; }
 EOF
 
 # run <name> <script>: run <script> in a fresh subshell with install.sh and the
 # mocks loaded. Leaves stdout in $WORK/out, stderr in $WORK/err, status in $RC.
 run() {
   : > "$WORK/calls"
+  rm -rf "${WORK:?}/home" "${WORK:?}/sys"
+  mkdir -p "$WORK/home"
   # The variables below are read by install.sh and the mocks, sourced at run time.
   # shellcheck disable=SC2034
   (
-    CALLS="$WORK/calls"; FIXTURE=$FIXTURE
+    CALLS="$WORK/calls"; FIXTURE=$FIXTURE; SYSROOT="$WORK/sys"
     ARPEIO_ADBC_INSTALL_SOURCE=1
     # shellcheck disable=SC1091
     . "$ROOT/install.sh"
     . "$WORK/mocks.sh"
     VERSION=latest; SCOPE=user; SCOPE_SET=0; PREFIX=""; DIR=""; DRIVER=""
     LICENSE=""; LICENSE_CONTENT=""; SKIP_CHECKSUM=0
-    HOME="$WORK/home"
+    # Every install location is derived from these two; pin both so no test can
+    # reach the real home or the real ADBC manifest directory.
+    HOME="$WORK/home"; XDG_CONFIG_HOME="$WORK/home/.config"
     eval "$1"
   ) > "$WORK/out" 2> "$WORK/err"
   RC=$?
@@ -73,6 +94,14 @@ err_lacks()     { ! grep -q -- "$1" "$WORK/err"; }
 rc_is()         { [ "$RC" = "$1" ]; }
 rc_nonzero()    { [ "$RC" != 0 ]; }
 calls_are()     { [ "$(api_calls)" = "$1" ]; }
+exists()        { [ -e "$1" ]; }
+missing()       { [ ! -e "$1" ]; }
+file_has()      { grep -q -- "$2" "$1"; }
+
+# Where a default (user-scope) install of arpemssql lands in the scratch home.
+LIBDIR="$WORK/home/.local/lib/arpeio-adbc/arpemssql"
+LIB="$LIBDIR/libarpemssql_adbc_driver-linux-x64.so"
+MANIFEST="$WORK/home/.config/adbc/drivers/arpemssql.toml"
 
 # ---- pagination ---------------------------------------------------------------
 run 'resolve_latest arpeteradata'
@@ -127,6 +156,87 @@ check "arm64 is rejected before any download is attempted" err_lacks "download f
 
 run 'uname() { case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac; }; detect_platform; echo "$MANIFEST_KEY"'
 check "x86_64 is still accepted" out_is "linux_amd64"
+
+# ---- checksum verification --------------------------------------------------------
+run 'DL_MODE=ok; VERSION=0.9.7; do_install arpemssql'
+check "an install verifies the download against SHA256SUMS" err_has "checksum OK"
+check "an install writes the library" exists "$LIB"
+check "an install writes the manifest with the version" file_has "$MANIFEST" 'version = "0.9.7"'
+
+run 'DL_MODE=ok; SUMS_MODE=bad; VERSION=0.9.7; do_install arpemssql'
+check "a checksum mismatch stops the install" rc_nonzero
+check "a checksum mismatch installs nothing" missing "$LIB"
+
+run 'DL_MODE=ok; SUMS_MODE=missing; VERSION=0.9.7; do_install arpemssql'
+check "an install fails when the release SHA256SUMS cannot be downloaded" rc_nonzero
+check "a missing SHA256SUMS is named in the error" err_has "SHA256SUMS"
+check "a missing SHA256SUMS error points at --skip-checksum" err_has "skip-checksum"
+check "a missing SHA256SUMS installs nothing" missing "$LIB"
+check "a missing SHA256SUMS writes no manifest" missing "$MANIFEST"
+
+run 'DL_MODE=ok; SUMS_MODE=missing; SKIP_CHECKSUM=1; VERSION=0.9.7; do_install arpemssql'
+check "--skip-checksum installs without SHA256SUMS" exists "$LIB"
+check "--skip-checksum says the download was not verified" err_has "without checksum verification"
+
+run 'DL_MODE=ok; SUMS_MODE=missing; VERSION=0.9.7; DIR="$HOME/bundle"; do_download arpemssql'
+check "--download-only fails when the release SHA256SUMS cannot be downloaded" rc_nonzero
+check "--download-only leaves no unverified binary behind" \
+  missing "$WORK/home/bundle/libarpemssql_adbc_driver-linux-x64.so"
+
+run 'DL_MODE=ok; SUMS_MODE=missing; SKIP_CHECKSUM=1; VERSION=0.9.7; DIR="$HOME/bundle"; do_download arpemssql'
+check "--download-only --skip-checksum downloads without SHA256SUMS" \
+  exists "$WORK/home/bundle/libarpemssql_adbc_driver-linux-x64.so"
+
+# ---- GitHub token -------------------------------------------------------------------
+# These exercise the real fetch/download (re-sourced over the mocks) with curl
+# replaced by a function that records its arguments.
+REAL='. "$ROOT/install.sh"; curl() { printf "%s\n" "$@" >> "$HOME/../curl_args"; }; : > "$HOME/../curl_args"'
+run "$REAL"'; GITHUB_TOKEN=tok123; fetch https://api.github.com/x'
+check "the release listing sends GITHUB_TOKEN when it is set" \
+  file_has "$WORK/curl_args" "Authorization: Bearer tok123"
+
+run "$REAL"'; GITHUB_TOKEN=""; GH_TOKEN=tok456; fetch https://api.github.com/x'
+check "the release listing falls back to GH_TOKEN" \
+  file_has "$WORK/curl_args" "Authorization: Bearer tok456"
+
+run "$REAL"'; GITHUB_TOKEN=""; GH_TOKEN=""; fetch https://api.github.com/x; grep -c Authorization "$HOME/../curl_args"'
+check "the release listing sends no Authorization header without a token" out_is "0"
+
+run "$REAL"'; GITHUB_TOKEN=tok123; download https://github.com/x "$HOME/f"; grep -c tok123 "$HOME/../curl_args"'
+check "the token is never sent with a binary download" out_is "0"
+
+run 'FAIL_PAGE=1; do_list'
+check "the API failure message mentions GITHUB_TOKEN" err_has "GITHUB_TOKEN"
+
+# ---- --list shows what is installed -------------------------------------------------
+run 'do_list'
+check "--list shows nothing extra for a driver that is not installed" err_lacks "installed"
+
+run 'DL_MODE=ok; VERSION=0.9.7; do_install arpemssql; VERSION=latest; do_list'
+check "--list shows the installed version" err_has "arpemssql .* 0\.9\.120 .*installed 0\.9\.7, user"
+check "--list flags an older installed version" err_has "arpemssql .*update available"
+check "--list prints the command that updates it" err_has "install\.sh arpemssql\$"
+
+run 'DL_MODE=ok; do_install arpemssql; do_list'
+check "--list says an installed latest version is up to date" err_has "arpemssql .*installed 0\.9\.120.*up to date"
+check "--list prints no update command when nothing is outdated" err_lacks "Update with"
+
+run 'DL_MODE=ok; VERSION=0.9.7; PREFIX="$HOME/custom"; do_install arpemssql; PREFIX=""; VERSION=latest; do_list'
+check "the update command for a --prefix install repeats the prefix" \
+  err_has "install\.sh arpemssql --prefix $WORK/home/custom\$"
+
+run 'DL_MODE=ok; VERSION=0.9.7; PREFIX="$HOME/my drivers"; do_install arpemssql; PREFIX=""; VERSION=latest; do_list'
+check "a prefix containing a space is quoted in the update command" \
+  err_has "install\.sh arpemssql --prefix \"$WORK/home/my drivers\"\$"
+
+run 'DL_MODE=ok; VERSION=0.9.7; SCOPE=system; PREFIX="$SYSROOT/opt"; do_install arpemssql; SCOPE=user; PREFIX=""; VERSION=latest; do_list'
+check "the update command for a system install says --system" \
+  err_has "install\.sh arpemssql --system --prefix $WORK/sys/opt\$"
+
+# Re-running the install is the update path: it must keep the licence in place.
+run 'DL_MODE=ok; printf "LIC\n" > "$HOME/../my.lic"; VERSION=0.9.7; LICENSE="$HOME/../my.lic"; do_install arpemssql; LICENSE=""; VERSION=latest; do_install arpemssql'
+check "re-running the install updates the version" file_has "$MANIFEST" 'version = "0.9.120"'
+check "re-running the install keeps the licence" exists "$LIBDIR/arpeio_adbc.lic"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ]

@@ -3,8 +3,8 @@
 [![CI](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml/badge.svg)](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml)
 [![installer](https://img.shields.io/badge/installer-v0.2.2-2b8a3e)](https://github.com/arpe-io/adbc-drivers/releases)
 [![License: MIT](https://img.shields.io/github/license/arpe-io/adbc-drivers)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows-informational)
-[![Docs](https://img.shields.io/badge/docs-arpe--io.github.io-1f6feb)](https://arpe-io.github.io/arpeio-adbc-drivers-docs/)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20x64%20%7C%20Windows%20x64-informational)
+[![Docs](https://img.shields.io/badge/docs-adbc--drivers--docs.arpe.io-1f6feb)](https://adbc-drivers-docs.arpe.io/)
 
 One-line installers for the Arpeio family of [ADBC](https://arrow.apache.org/adbc/)
 drivers. Each driver is a pure-native, high-performance ADBC driver that returns
@@ -26,15 +26,16 @@ compatibility, and troubleshooting.
 | Teradata | ArpeTeradata | `arpeteradata` | ✅ Published |
 | IBM Db2 | ArpeDb2 | `arpedb2` | ✅ Published |
 
-Only the drivers marked **Published** are downloadable today; run
-`… install.sh --list` for the authoritative, always-current list. Each driver's
-connection guide, data-type mapping, and compatibility matrix live on the
-[documentation site](https://arpe-io.github.io/arpeio-adbc-drivers-docs/) —
-[ArpeMSSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpemssql/),
-[ArpePGSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpepgsql/),
-[ArpeOracle](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeoracle/),
-[ArpeNetezza](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpenetezza/),
-[ArpeTeradata](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeteradata/).
+All six drivers are published for Linux x64 and Windows x64; run
+`… install.sh --list` for the latest version of each. Each driver's connection
+guide, data-type mapping, and compatibility matrix live on the
+[documentation site](https://adbc-drivers-docs.arpe.io/) —
+[ArpeMSSQL](https://adbc-drivers-docs.arpe.io/drivers/arpemssql),
+[ArpePGSQL](https://adbc-drivers-docs.arpe.io/drivers/arpepgsql),
+[ArpeOracle](https://adbc-drivers-docs.arpe.io/drivers/arpeoracle),
+[ArpeNetezza](https://adbc-drivers-docs.arpe.io/drivers/arpenetezza),
+[ArpeTeradata](https://adbc-drivers-docs.arpe.io/drivers/arpeteradata),
+[ArpeDb2](https://adbc-drivers-docs.arpe.io/drivers/arpedb2).
 
 The driver *binaries* are published here as public GitHub Releases and are free
 to download. They are **licence-gated**: a driver requires a valid Arpeio licence
@@ -42,7 +43,7 @@ at runtime — there is no trial build. Contact <sales@arpe.io> for a licence.
 
 ## Install
 
-**Linux / macOS:**
+**Linux:**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
@@ -62,6 +63,19 @@ List what's available and the latest published version of each:
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh | sh -s -- --list
 ```
 
+For a driver that is already installed, the same list shows the installed version
+next to the latest one, and prints the command that updates it:
+
+```text
+  arpemssql    Microsoft SQL Server   0.8.4      installed 0.8.3, user (update available)
+  ...
+Update with (your licence file stays in place):
+  install.sh arpemssql
+```
+
+Updating is simply installing again: the new library replaces the old one in the
+same directory, and the licence file next to it is left alone.
+
 List **every** published version (all drivers, or a single one), newest first:
 
 ```sh
@@ -72,7 +86,8 @@ curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.s
 
 1. Downloads the driver's shared library for your OS/arch from this repo's
    Releases (tag `<driver>-v<version>`, e.g. `arpemssql-v0.5.19`) and verifies it
-   against the release `SHA256SUMS`.
+   against the release `SHA256SUMS`. Nothing is installed if the checksum does
+   not match or the `SHA256SUMS` cannot be downloaded.
 2. Installs the library (default: per-user, under `~/.local/lib/arpeio-adbc/`
    on Unix / `%LOCALAPPDATA%\arpeio-adbc\` on Windows; `--system` / `-Scope
    system` for a machine-wide install).
@@ -97,7 +112,7 @@ ready-to-use `<driver>.toml` manifest **next to it**, into the directory you cho
 with `--dir` / `-Dir` (default: the current directory). Nothing else is touched: no
 system directory, no licence file, no environment variable.
 
-**Linux / macOS:**
+**Linux:**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
@@ -135,7 +150,7 @@ access at install time**.
 then download the driver bundle. `--download-only` writes the driver binary, a
 `<driver>.toml` manifest, and the release `SHA256SUMS` into the bundle directory.
 
-Linux / macOS:
+Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh -o install.sh
@@ -157,7 +172,7 @@ bundle. It re-verifies the binary against the bundled `SHA256SUMS`, installs int
 standard location, writes the ADBC manifest, and copies your licence — all with no
 network calls.
 
-Linux / macOS:
+Linux:
 
 ```sh
 sh install.sh arpemssql --offline --dir ./arpemssql-bundle --license ./your.lic
@@ -214,8 +229,8 @@ to remove a machine-wide one. On Windows, use `-Installed` and
 | `--download-only` | `-DownloadOnly` | Just download the binary + manifest + `SHA256SUMS` into a dir (see [Download only](#download-only)); no managed install. |
 | `--offline` | `-Offline` | Managed install from a pre-downloaded bundle with no network (see [Offline / air-gapped install](#offline--air-gapped-install)). |
 | `--dir <dir>` | `-Dir <dir>` | Bundle directory: destination for `--download-only`, source for `--offline` (default: current dir). |
-| `--skip-checksum` | `-SkipChecksum` | (`--offline` only) Install without checksum verification; otherwise a missing `SHA256SUMS` fails as an incomplete bundle. |
-| `--list` | `-List` | List *available* drivers + latest published versions. |
+| `--skip-checksum` | `-SkipChecksum` | Continue without checksum verification. By default a `SHA256SUMS` that is missing or cannot be downloaded stops the command. |
+| `--list` | `-List` | List *available* drivers + latest published versions, with the installed version of each and how to update it. |
 | `--versions [<driver>]` | `-Versions [<driver>]` | List *every* published version (all drivers, or one). |
 | `--installed` | `-Installed` | List the drivers *installed* on this machine. |
 | `--uninstall <driver>` | `-Uninstall <driver>` | Remove an installed driver. |
@@ -261,9 +276,8 @@ connect time. It checks, in order:
 ## Manifest search paths (advanced)
 
 The installer writes `<driver>.toml` where the ADBC driver manager searches:
-`~/.config/adbc/drivers` (Linux) · `~/Library/Application Support/ADBC/Drivers`
-(macOS) · `%LOCALAPPDATA%\ADBC\Drivers` (Windows), or the system equivalents with
-`--system`. If your client can't find it, point `ADBC_DRIVER_PATH` at the
+`~/.config/adbc/drivers` (Linux) · `%LOCALAPPDATA%\ADBC\Drivers` (Windows), or
+the system equivalents with `--system`. If your client can't find it, point `ADBC_DRIVER_PATH` at the
 directory the installer reports.
 
 ## Troubleshooting
@@ -273,6 +287,11 @@ directory the installer reports.
 Re-run the installer; if it persists, download the release asset manually from the
 [Releases](https://github.com/arpe-io/adbc-drivers/releases) page and compare with
 `sha256sum`.
+
+**`could not download the release SHA256SUMS`.** The installer refuses to install a
+binary it cannot verify. This is usually a network hiccup: re-run the command.
+`--skip-checksum` / `-SkipChecksum` continues without verification, at your own
+risk.
 
 **Client can't find the driver / "driver not found".** The ADBC driver manager did
 not see the manifest. Confirm the install with `… install.sh --installed`, then
@@ -301,7 +320,8 @@ Linux and Windows; use an x64 machine.
 reads the public GitHub API, which allows 60 unauthenticated requests per hour per
 IP address — a limit a shared CI runner or office network can reach. Retry later,
 or name the version: `--version X.Y.Z` (`-Version X.Y.Z` on Windows) installs
-without calling the API.
+without calling the API. In CI, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a GitHub
+token: the installer sends it with that API call only, which lifts the limit.
 
 ## Building from source
 

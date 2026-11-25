@@ -50,20 +50,32 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser  # once
 Invoke-ScriptAnalyzer -Path ./install.ps1 -Settings ./.github/PSScriptAnalyzerSettings.psd1
 ```
 
-**Tests** — both installers have a small test script that runs without network
-access (the GitHub API and the downloads are replaced by functions):
+**Tests** — both installers have a test script that runs without network access
+(the GitHub API and the downloads are replaced by functions), and a third checks
+that the driver list is the same in `registry.json`, both installers and the
+README table:
 ```sh
 sh tests/test_install.sh
 pwsh -NoProfile -File tests/test_install.ps1
+pwsh -NoProfile -File tests/test_registry.ps1
 ```
+CI runs them on Linux and Windows, including Windows PowerShell 5.1.
+
+**Live releases** — `sh tests/check_releases.sh` (needs `gh` and `jq`) checks that
+the latest release of every driver carries both binaries and a matching
+`SHA256SUMS`, without downloading a binary. The `Smoke` workflow runs it daily,
+and once a week really installs one driver on Linux and Windows.
+
+Record user-visible changes in `CHANGELOG.md`, under **Unreleased**.
 
 Keep the two installers in sync: a change to one usually needs the equivalent in
 the other, and the same in the `README.md` options table.
 
 ## Releasing (maintainers)
 
-1. Cut `release/vX.Y.Z` from `develop`, finalise the changelog, bump the installer
-   version badge in `README.md`.
+1. Cut `release/vX.Y.Z` from `develop`, rename the **Unreleased** section of
+   `CHANGELOG.md` to the new version, bump the installer version badge in
+   `README.md`.
 2. Merge into `main`, then tag and publish a GitHub Release:
    ```sh
    git tag -a vX.Y.Z -m "Installer vX.Y.Z: <summary>"

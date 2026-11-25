@@ -1,0 +1,129 @@
+name: Smoke
+
+# Runs the installers against the real GitHub Releases, to catch a release with a
+# missing binary or a wrong checksum - or an installer that no longer resolves
+# "latest" - before a user does.
+#
+# Every run:  both installers resolve the latest version of every driver, and
+#             tests/check_releases.sh checks those releases without downloading
+#             any driver binary.
+# Mondays, pull requests and manual runs only:  one driver (a different one each
+#             week) is really installed, listed and uninstalled, on Linux and on
+#             Windows PowerShell 5.1. This is the only part that downloads a
+#             binary, so the release download counts stay meaningful.
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - install.sh
+      - install.ps1
+      - registry.json
+      - tests/check_releases.sh
+      - .github/workflows/smoke.yml
+
+permissions:
+  contents: read
+
+env:
+  # Sent by the installers with the release listing only: shared runners reach
+  # GitHub's limit for unauthenticated API calls. Also used by `gh`.
+  GITHUB_TOKEN: ${{ github.token }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  linux:
+    name: smoke (Linux, install.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Latest version of every driver resolves
+        run: |
+          # Not piped into tee: without pipefail a failed listing would pass.
+          sh install.sh --list > list.txt 2>&1 || { cat list.txt; exit 1; }
+          cat list.txt
+          if grep -q 'not published yet' list.txt; then
+            echo "a driver has no published version"; exit 1
+          fi
+
+      - name: Latest releases carry both binaries and a matching SHA256SUMS
+        run: sh tests/check_releases.sh
+
+      - name: Install, list and uninstall one driver
+        run: |
+          set -eu
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$(date -u +%u)" != 1 ]; then
+            echo "real install runs on Mondays, pull requests and manual runs only"; exit 0
+          fi
+          # A different driver each week: the week number picks it.
+          count=$(jq '.drivers | length' registry.json)
+          index=$(( $(date -u +%s) / 604800 % count ))
+          d=$(jq -r --argjson i "$index" '.drivers | keys_unsorted[$i]' registry.json)
+          echo "driver: $d"
+
+          # Outputs go to a file, not through tee: with set -e and no pipefail, a
+          # failing installer in a pipeline would not stop the step.
+          sh install.sh "$d"
+          sh install.sh --installed > installed.txt 2>&1; cat installed.txt
+          grep -q "^  $d " installed.txt
+          sh install.sh --list > list.txt 2>&1; cat list.txt
+          grep -q "^  $d .*(up to date)" list.txt
+          sh install.sh --uninstall "$d"
+          sh install.sh --installed > installed.txt 2>&1; cat installed.txt
+          grep -q "(none installed)" installed.txt
+
+  windows:
+    name: smoke (Windows PowerShell 5.1, install.ps1)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Latest version of every driver resolves
+        run: |
+          # Joined by hand: Out-String would wrap long lines at the console width.
+          $out = (.\install.ps1 -List 6>&1 | ForEach-Object { "$_" }) -join "`n"
+          Write-Host $out
+          if ($out -match 'not published yet') { throw "a driver has no published version" }
+          $names = (Get-Content -Raw registry.json | ConvertFrom-Json).drivers.PSObject.Properties.Name
+          foreach ($n in $names) {
+            if ($out -notmatch "(?m)^  $n .* \d+\.\d+\.\d+") { throw "no version listed for $n" }
+          }
+
+      - name: Install, list and uninstall one driver (system scope)
+        run: |
+          if (($env:GITHUB_EVENT_NAME -eq "schedule") -and ((Get-Date).ToUniversalTime().DayOfWeek -ne "Monday")) {
+            Write-Host "real install runs on Mondays, pull requests and manual runs only"; exit 0
+          }
+          # A different driver each week: the week number picks it.
+          $names = @((Get-Content -Raw registry.json | ConvertFrom-Json).drivers.PSObject.Properties.Name)
+          $week = [math]::Floor([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() / 604800)
+          $d = $names[$week % $names.Count]
+          Write-Host "driver: $d"
+
+          # Another vendor's directory is already on the machine ADBC_DRIVER_PATH:
+          # a system install must add ours after it, once, and keep theirs.
+          $other = "C:\other-vendor\adbc\drivers"
+          $ours = Join-Path $env:ProgramData "arpeio-adbc\adbc\drivers"
+          [Environment]::SetEnvironmentVariable("ADBC_DRIVER_PATH", $other, "Machine")
+
+          .\install.ps1 $d -Scope system
+          $path = [Environment]::GetEnvironmentVariable("ADBC_DRIVER_PATH", "Machine")
+          if ($path -ne "$other;$ours") { throw "machine ADBC_DRIVER_PATH is '$path' after the install" }
+
+          $out = (.\install.ps1 -Installed 6>&1 | ForEach-Object { "$_" }) -join "`n"; Write-Host $out
+          if ($out -notmatch "(?m)^  $d .* system ") { throw "$d is not listed as installed at system scope" }
+          $out = (.\install.ps1 -List 6>&1 | ForEach-Object { "$_" }) -join "`n"; Write-Host $out
+          if ($out -notmatch "(?m)^  $d .*system \(up to date\)") { throw "$d is not listed as up to date" }
+
+          .\install.ps1 $d -Scope system
+          $path = [Environment]::GetEnvironmentVariable("ADBC_DRIVER_PATH", "Machine")
+          if ($path -ne "$other;$ours") { throw "machine ADBC_DRIVER_PATH is '$path' after a second install" }
+
+          .\install.ps1 -Uninstall $d -Scope system
+          $out = (.\install.ps1 -Installed 6>&1 | ForEach-Object { "$_" }) -join "`n"; Write-Host $out
+          if ($out -notmatch "none installed") { throw "a driver is still installed" }
