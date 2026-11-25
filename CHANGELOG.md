@@ -10,7 +10,9 @@ reaches users when it is merged there, whether or not a version has been tagged.
 
 ## Unreleased
 
-Everything since v0.2.2. Not tagged yet.
+Nothing yet.
+
+## v0.2.3 — 2026-11-25
 
 ### Breaking
 
