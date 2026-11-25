@@ -50,6 +50,13 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser  # once
 Invoke-ScriptAnalyzer -Path ./install.ps1 -Settings ./.github/PSScriptAnalyzerSettings.psd1
 ```
 
+**Tests** — both installers have a small test script that runs without network
+access (the GitHub API and the downloads are replaced by functions):
+```sh
+sh tests/test_install.sh
+pwsh -NoProfile -File tests/test_install.ps1
+```
+
 Keep the two installers in sync: a change to one usually needs the equivalent in
 the other, and the same in the `README.md` options table.
 

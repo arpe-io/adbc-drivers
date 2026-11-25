@@ -294,6 +294,15 @@ install that needs no admin.
 **`macOS is not supported yet`.** macOS binaries are staged but not yet published;
 use Linux or Windows for now.
 
+**`arm64 is not supported yet`.** Only x64 binaries are published for now, on both
+Linux and Windows; use an x64 machine.
+
+**`could not list the releases … from the GitHub API`.** Finding the latest version
+reads the public GitHub API, which allows 60 unauthenticated requests per hour per
+IP address — a limit a shared CI runner or office network can reach. Retry later,
+or name the version: `--version X.Y.Z` (`-Version X.Y.Z` on Windows) installs
+without calling the API.
+
 ## Building from source
 
 The driver sources are proprietary and live in private repositories. This repo

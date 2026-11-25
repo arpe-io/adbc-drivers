@@ -80,7 +80,7 @@ verify_checksum() { # <sums_url> <asset> <tmp>
 }
 
 # Detect OS + the two arch spellings we need:
-#   ASSET_ARCH  (x64/arm64)   — used in the release asset filename
+#   ASSET_ARCH  (x64)         — used in the release asset filename
 #   MANIFEST_KEY (linux_amd64…) — the ADBC driver-manager platform tuple
 detect_platform() {
   _os=$(uname -s); _machine=$(uname -m)
@@ -94,10 +94,51 @@ detect_platform() {
   esac
   case "$_machine" in
     x86_64|amd64) ASSET_ARCH=x64;   MANIFEST_ARCH=amd64 ;;
-    arm64|aarch64) ASSET_ARCH=arm64; MANIFEST_ARCH=arm64 ;;
+    # arm64 is not published yet: releases carry x64 binaries only. Re-enable
+    # with this line once arm64 binaries are ready:
+    #   arm64|aarch64) ASSET_ARCH=arm64; MANIFEST_ARCH=arm64 ;;
+    arm64|aarch64) err "arm64 is not supported yet (x64 only for now)" ;;
     *) err "unsupported architecture '$_machine'" ;;
   esac
   MANIFEST_KEY="${OS_MANIFEST}_${MANIFEST_ARCH}"
+}
+
+# Load the tag of EVERY release of the dist repo into RELEASE_TAGS, one per
+# line, once per run. The API serves at most 100 releases per page and all the
+# drivers share the one listing, so every page is read: stopping at the first
+# would hide the drivers whose latest release sits further down. A page that
+# cannot be fetched is fatal — a partial listing would silently report the wrong
+# "latest". Call this from the main shell before resolve_versions/resolve_latest
+# so the error stops the run (those two are used inside pipelines and $(...)).
+RELEASE_TAGS=""
+RELEASE_TAGS_LOADED=0
+RELEASE_PAGE_SIZE=100
+RELEASE_MAX_PAGES=50
+load_release_tags() {
+  [ "$RELEASE_TAGS_LOADED" = 1 ] && return 0
+  RELEASE_TAGS=""
+  _p=1
+  while :; do
+    [ "$_p" -le "$RELEASE_MAX_PAGES" ] \
+      || err "the GitHub API release listing of ${DIST_REPO} does not end after ${RELEASE_MAX_PAGES} pages — giving up"
+    _page=$(fetch "${API}?per_page=${RELEASE_PAGE_SIZE}&page=${_p}") \
+      || err "could not list the releases of ${DIST_REPO} from the GitHub API
+  (no network access, or GitHub's limit of 60 unauthenticated requests per hour
+  per IP address was reached). Retry later, or install a specific version, which
+  needs no API call:  install.sh <driver> --version <X.Y.Z>"
+    _tags=$(printf '%s\n' "$_page" | grep '"tag_name":' \
+      | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' || true)
+    _n=0
+    if [ -n "$_tags" ]; then
+      # Pages are joined with an explicit newline: $(...) strips the trailing one.
+      RELEASE_TAGS="${RELEASE_TAGS}${_tags}
+"
+      _n=$(printf '%s\n' "$_tags" | grep -c .)
+    fi
+    [ "$_n" -ge "$RELEASE_PAGE_SIZE" ] || break   # a short page is the last one
+    _p=$((_p + 1))
+  done
+  RELEASE_TAGS_LOADED=1
 }
 
 # All published STABLE versions for a driver, highest version first (empty if
@@ -107,9 +148,8 @@ detect_platform() {
 # Prereleases — any version carrying a hyphen, e.g. 0.5.19-rc1 — are skipped;
 # install one explicitly with `--version 0.5.19-rc1`.
 resolve_versions() {
-  fetch "${API}?per_page=100" \
-    | grep '"tag_name":' \
-    | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' \
+  load_release_tags
+  printf '%s' "$RELEASE_TAGS" \
     | grep "^$1-v" \
     | while IFS= read -r _t; do
         case "${_t#"$1"-v}" in
@@ -257,6 +297,7 @@ install_license() { # <libdir>
 # ---- commands ----------------------------------------------------------------
 do_list() {
   detect_platform
+  load_release_tags
   info "Available Arpeio ADBC drivers (dist: ${DIST_REPO}):"
   info ""
   for d in $ALL_DRIVERS; do
@@ -277,6 +318,7 @@ do_versions() {
   else
     _drivers=$ALL_DRIVERS
   fi
+  load_release_tags
   info "Published Arpeio ADBC driver versions (dist: ${DIST_REPO}):"
   info ""
   for d in $_drivers; do
@@ -296,6 +338,7 @@ do_install() {
 
   # Resolve version -> tag.
   if [ "$VERSION" = latest ]; then
+    load_release_tags
     tag=$(resolve_latest "$name" || true)
     [ -n "${tag:-}" ] || err "no published release for '$name' yet"
   else
@@ -367,6 +410,7 @@ do_download() {
 
   # Resolve version -> tag (same as do_install).
   if [ "$VERSION" = latest ]; then
+    load_release_tags
     tag=$(resolve_latest "$name" || true)
     [ -n "${tag:-}" ] || err "no published release for '$name' yet"
   else
