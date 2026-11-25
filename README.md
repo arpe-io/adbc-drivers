@@ -1,7 +1,7 @@
 # Arpeio ADBC drivers
 
 [![CI](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml/badge.svg)](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml)
-[![installer](https://img.shields.io/badge/installer-v0.2.2-2b8a3e)](https://github.com/arpe-io/adbc-drivers/releases)
+[![installer](https://img.shields.io/badge/installer-v0.2.3-2b8a3e)](https://github.com/arpe-io/adbc-drivers/releases)
 [![License: MIT](https://img.shields.io/github/license/arpe-io/adbc-drivers)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-Linux%20x64%20%7C%20Windows%20x64-informational)
 [![Docs](https://img.shields.io/badge/docs-adbc--drivers--docs.arpe.io-1f6feb)](https://adbc-drivers-docs.arpe.io/)
