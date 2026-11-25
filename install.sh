@@ -235,7 +235,8 @@ Options:
                      default; narrow with --user/--system).
   --uninstall        Remove a driver: its library, copied licence, and manifest.
                      Acts on the user scope by default; --system for a machine one.
-  --list             List the available drivers and their latest published versions.
+  --list             List the available drivers and their latest published versions,
+                     with the installed version of each and how to update it.
   --versions         List every published version of each driver (or one driver,
                      if named), newest first.
 
@@ -251,6 +252,11 @@ EOF
 }
 
 # ---- manifest + install locations --------------------------------------------
+# Where a driver's library goes for a scope when --prefix is not given.
+default_libdir() { # <name> <scope>
+  if [ "$2" = system ]; then printf '%s\n' "/opt/arpeio-adbc/$1"
+  else printf '%s\n' "$HOME/.local/lib/arpeio-adbc/$1"; fi
+}
 user_manifest_dir() {
   # macOS branch parked until macOS binaries ship (see detect_platform):
   #   if [ "$OS_MANIFEST" = macos ]; then
@@ -318,18 +324,64 @@ install_license() { # <libdir>
   fi
 }
 
+# The higher of two versions, compared number by number.
+version_max() { # <a> <b>
+  printf '%s\n%s\n' "$1" "$2" | sort -t . -k 1,1nr -k 2,2nr -k 3,3nr -k 4,4nr | head -n1
+}
+
+# The install.sh arguments that re-install <name> exactly where it is installed
+# now: same scope, and the same --prefix if it was installed with one. Installing
+# over the same directory is what keeps the licence file in place.
+update_args() { # <name> <scope> <libpath>
+  _ua=$1
+  if [ "$2" = system ]; then _ua="$_ua --system"; fi
+  _ld=$(dirname "$3")
+  if [ "$_ld" != "$(default_libdir "$1" "$2")" ] && [ "$(basename "$_ld")" = "$1" ]; then
+    _ua="$_ua --prefix $(dirname "$_ld")"
+  fi
+  printf '%s\n' "$_ua"
+}
+
 # ---- commands ----------------------------------------------------------------
+# List the available drivers with their latest published version and, for the
+# ones installed on this machine, the installed version and whether it is
+# behind — followed by the command that updates each outdated one.
 do_list() {
   detect_platform
   load_release_tags
   info "Available Arpeio ADBC drivers (dist: ${DIST_REPO}):"
   info ""
+  _updates=""
   for d in $ALL_DRIVERS; do
     _tag=$(resolve_latest "$d" || true)
     if [ -n "${_tag:-}" ]; then _ver="${_tag#"$d"-v}"; else _ver="(not published yet)"; fi
-    printf '  %-12s %-22s %s\n' "$d" "$(driver_field "$d" dbms)" "$_ver" >&2
+    _note=""
+    for _scope in user system; do
+      if [ "$_scope" = user ]; then _mdir=$(user_manifest_dir); else _mdir=$(system_manifest_dir); fi
+      _m="$_mdir/$d.toml"
+      [ -f "$_m" ] || continue
+      _iv=$(manifest_version_of "$_m")
+      [ -n "$_iv" ] || continue
+      _state=""
+      if [ -n "${_tag:-}" ]; then
+        if [ "$_iv" = "$_ver" ]; then
+          _state=" (up to date)"
+        elif [ "$(version_max "$_iv" "$_ver")" = "$_ver" ]; then
+          _state=" (update available)"
+          _updates="${_updates}  install.sh $(update_args "$d" "$_scope" "$(manifest_libpath_of "$_m")")
+"
+        fi
+      fi
+      _note="${_note}   installed ${_iv}, ${_scope}${_state}"
+    done
+    printf '  %-12s %-22s %-8s%s\n' "$d" "$(driver_field "$d" dbms)" "$_ver" "$_note" >&2
   done
   info ""
+  if [ -n "$_updates" ]; then
+    info "Update with (your licence file stays in place):"
+    printf '%s' "$_updates" >&2
+    info ""
+  fi
   info "Install:  install.sh <driver> --license <your.lic>"
 }
 
@@ -377,8 +429,7 @@ do_install() {
 
   # Install locations.
   if [ -n "${PREFIX:-}" ]; then libdir="$PREFIX/$name"
-  elif [ "$SCOPE" = system ]; then libdir="/opt/arpeio-adbc/$name"
-  else libdir="$HOME/.local/lib/arpeio-adbc/$name"; fi
+  else libdir=$(default_libdir "$name" "$SCOPE"); fi
   if [ "$SCOPE" = system ]; then mandir=$(system_manifest_dir); else mandir=$(user_manifest_dir); fi
 
   info "Installing ${name} ${ver} (${MANIFEST_KEY})"
@@ -523,8 +574,7 @@ do_offline() {
 
   # Install locations (identical to do_install).
   if [ -n "${PREFIX:-}" ]; then libdir="$PREFIX/$name"
-  elif [ "$SCOPE" = system ]; then libdir="/opt/arpeio-adbc/$name"
-  else libdir="$HOME/.local/lib/arpeio-adbc/$name"; fi
+  else libdir=$(default_libdir "$name" "$SCOPE"); fi
   if [ "$SCOPE" = system ]; then mandir=$(system_manifest_dir); else mandir=$(user_manifest_dir); fi
 
   info "Installing ${name} ${ver} (${MANIFEST_KEY}) — offline from ${srcdir}"

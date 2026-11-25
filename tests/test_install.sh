@@ -208,5 +208,31 @@ check "the token is never sent with a binary download" out_is "0"
 run 'FAIL_PAGE=1; do_list'
 check "the API failure message mentions GITHUB_TOKEN" err_has "GITHUB_TOKEN"
 
+# ---- --list shows what is installed -------------------------------------------------
+run 'do_list'
+check "--list shows nothing extra for a driver that is not installed" err_lacks "installed"
+
+run 'DL_MODE=ok; VERSION=0.9.7; do_install arpemssql; VERSION=latest; do_list'
+check "--list shows the installed version" err_has "arpemssql .* 0\.9\.120 .*installed 0\.9\.7, user"
+check "--list flags an older installed version" err_has "arpemssql .*update available"
+check "--list prints the command that updates it" err_has "install\.sh arpemssql\$"
+
+run 'DL_MODE=ok; do_install arpemssql; do_list'
+check "--list says an installed latest version is up to date" err_has "arpemssql .*installed 0\.9\.120.*up to date"
+check "--list prints no update command when nothing is outdated" err_lacks "Update with"
+
+run 'DL_MODE=ok; VERSION=0.9.7; PREFIX="$HOME/custom"; do_install arpemssql; PREFIX=""; VERSION=latest; do_list'
+check "the update command for a --prefix install repeats the prefix" \
+  err_has "install\.sh arpemssql --prefix $WORK/home/custom\$"
+
+run 'DL_MODE=ok; VERSION=0.9.7; SCOPE=system; PREFIX="$SYSROOT/opt"; do_install arpemssql; SCOPE=user; PREFIX=""; VERSION=latest; do_list'
+check "the update command for a system install says --system" \
+  err_has "install\.sh arpemssql --system --prefix $WORK/sys/opt\$"
+
+# Re-running the install is the update path: it must keep the licence in place.
+run 'DL_MODE=ok; printf "LIC\n" > "$HOME/../my.lic"; VERSION=0.9.7; LICENSE="$HOME/../my.lic"; do_install arpemssql; LICENSE=""; VERSION=latest; do_install arpemssql'
+check "re-running the install updates the version" file_has "$MANIFEST" 'version = "0.9.120"'
+check "re-running the install keeps the licence" exists "$LIBDIR/arpeio_adbc.lic"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ]

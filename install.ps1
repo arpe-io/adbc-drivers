@@ -71,6 +71,13 @@ function Get-PlatformArch {
 function Get-UserManifestDir   { Join-Path $env:LOCALAPPDATA "ADBC\Drivers" }
 function Get-SystemManifestDir { Join-Path $env:ProgramData "arpeio-adbc\adbc\drivers" }
 
+# Where a driver's library goes for a scope when -Prefix is not given.
+function Get-DefaultLibDir {
+  param([string]$name, [string]$scope)
+  if ($scope -eq "system") { return (Join-Path $env:ProgramFiles "arpeio-adbc\$name") }
+  return (Join-Path $env:LOCALAPPDATA "arpeio-adbc\$name")
+}
+
 # The value ADBC_DRIVER_PATH must take for $dir to be on it. On Windows the
 # variable is a semicolon-separated list of directories, and other software may
 # have put its own there: the existing entries are kept and $dir is appended,
@@ -201,15 +208,59 @@ function Resolve-LatestTag {
   return $null
 }
 
+# The install.ps1 arguments that re-install $name exactly where it is installed
+# now: same scope, and the same -Prefix if it was installed with one. Installing
+# over the same directory is what keeps the licence file in place.
+function Get-UpdateArgument {
+  param([string]$name, [string]$scope, [string]$libpath)
+  $cmd = $name
+  if ($scope -eq "system") { $cmd += " -Scope system" }
+  if ($libpath) {
+    $libdir = Split-Path -Parent $libpath
+    if (($libdir -ine (Get-DefaultLibDir $name $scope)) -and ((Split-Path -Leaf $libdir) -ieq $name)) {
+      $cmd += " -Prefix $(Split-Path -Parent $libdir)"
+    }
+  }
+  return $cmd
+}
+
+# List the available drivers with their latest published version and, for the
+# ones installed on this machine, the installed version and whether it is
+# behind - followed by the command that updates each outdated one.
 function Show-List {
   Write-Info "Available Arpeio ADBC drivers (dist: $DistRepo):"
   Write-Info ""
+  $updates = @()
   foreach ($name in $Registry.Keys) {
     $tag = Resolve-LatestTag $name
     $ver = if ($tag) { $tag.Substring("$name-v".Length) } else { "(not published yet)" }
-    Write-Info ("  {0,-12} {1,-22} {2}" -f $name, $Registry[$name].dbms, $ver)
+    $note = ""
+    foreach ($scope in @("user", "system")) {
+      $mdir = if ($scope -eq "system") { Get-SystemManifestDir } else { Get-UserManifestDir }
+      $manifest = Join-Path $mdir "$name.toml"
+      if (-not (Test-Path $manifest)) { continue }
+      $installed = Read-ManifestVersion $manifest
+      if (-not $installed) { continue }
+      $state = ""
+      if ($tag) {
+        $vi = $null; $vl = $null
+        if ($installed -eq $ver) {
+          $state = " (up to date)"
+        } elseif ([version]::TryParse($installed, [ref]$vi) -and [version]::TryParse($ver, [ref]$vl) -and ($vi -lt $vl)) {
+          $state = " (update available)"
+          $updates += "  install.ps1 " + (Get-UpdateArgument $name $scope (Read-ManifestLibPath $manifest))
+        }
+      }
+      $note += "   installed $installed, $scope$state"
+    }
+    Write-Info ("  {0,-12} {1,-22} {2,-8}{3}" -f $name, $Registry[$name].dbms, $ver, $note)
   }
   Write-Info ""
+  if ($updates.Count -gt 0) {
+    Write-Info "Update with (your licence file stays in place):"
+    foreach ($u in $updates) { Write-Info $u }
+    Write-Info ""
+  }
   Write-Info "Install:  install.ps1 arpemssql -License C:\path\to\your.lic"
 }
 
@@ -406,9 +457,8 @@ function Install-Driver {
   $sumsUrl = "$Dl/$tag/SHA256SUMS"
   $manifestKey = "windows_$($arch.manifest)"
 
-  if ($Prefix)              { $libdir = Join-Path $Prefix $name }
-  elseif ($Scope -eq "system") { $libdir = Join-Path $env:ProgramFiles "arpeio-adbc\$name" }
-  else                      { $libdir = Join-Path $env:LOCALAPPDATA "arpeio-adbc\$name" }
+  if ($Prefix) { $libdir = Join-Path $Prefix $name }
+  else         { $libdir = Get-DefaultLibDir $name $Scope }
 
   # No auto-searched system directory exists on Windows for .toml manifests (the
   # system mechanism is the registry); -Scope system installs to a stable
@@ -565,9 +615,8 @@ function Install-DriverOffline {
     Fail "cannot determine the version offline: no $bundleManifest in the bundle and no -Version (pass -Version X.Y.Z)"
   }
 
-  if ($Prefix)                 { $libdir = Join-Path $Prefix $name }
-  elseif ($Scope -eq "system") { $libdir = Join-Path $env:ProgramFiles "arpeio-adbc\$name" }
-  else                         { $libdir = Join-Path $env:LOCALAPPDATA "arpeio-adbc\$name" }
+  if ($Prefix) { $libdir = Join-Path $Prefix $name }
+  else         { $libdir = Get-DefaultLibDir $name $Scope }
   if ($Scope -eq "system") { $mandir = Get-SystemManifestDir } else { $mandir = Get-UserManifestDir }
 
   Write-Info "Installing $name $ver ($manifestKey) - offline from $srcdir"

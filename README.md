@@ -63,6 +63,19 @@ List what's available and the latest published version of each:
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh | sh -s -- --list
 ```
 
+For a driver that is already installed, the same list shows the installed version
+next to the latest one, and prints the command that updates it:
+
+```text
+  arpemssql    Microsoft SQL Server   0.8.4      installed 0.8.3, user (update available)
+  ...
+Update with (your licence file stays in place):
+  install.sh arpemssql
+```
+
+Updating is simply installing again: the new library replaces the old one in the
+same directory, and the licence file next to it is left alone.
+
 List **every** published version (all drivers, or a single one), newest first:
 
 ```sh
@@ -217,7 +230,7 @@ to remove a machine-wide one. On Windows, use `-Installed` and
 | `--offline` | `-Offline` | Managed install from a pre-downloaded bundle with no network (see [Offline / air-gapped install](#offline--air-gapped-install)). |
 | `--dir <dir>` | `-Dir <dir>` | Bundle directory: destination for `--download-only`, source for `--offline` (default: current dir). |
 | `--skip-checksum` | `-SkipChecksum` | Continue without checksum verification. By default a `SHA256SUMS` that is missing or cannot be downloaded stops the command. |
-| `--list` | `-List` | List *available* drivers + latest published versions. |
+| `--list` | `-List` | List *available* drivers + latest published versions, with the installed version of each and how to update it. |
 | `--versions [<driver>]` | `-Versions [<driver>]` | List *every* published version (all drivers, or one). |
 | `--installed` | `-Installed` | List the drivers *installed* on this machine. |
 | `--uninstall <driver>` | `-Uninstall <driver>` | Remove an installed driver. |

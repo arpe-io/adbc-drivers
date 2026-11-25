@@ -64,6 +64,9 @@ function Invoke-WebRequest {
   }
 }
 
+# A -Scope system install must not touch the real machine environment.
+function Add-MachineDriverPath { param([string]$mandir) $Mock.MachinePath = $mandir }
+
 $Pass = 0
 $Failed = 0
 function Reset-State {
@@ -75,6 +78,8 @@ function Reset-State {
   $script:TestProfile = Join-Path $Work ([guid]::NewGuid())
   New-Item -ItemType Directory -Path $script:TestProfile | Out-Null
   $env:LOCALAPPDATA = $script:TestProfile
+  $env:ProgramFiles = Join-Path $script:TestProfile "ProgramFiles"
+  $env:ProgramData = Join-Path $script:TestProfile "ProgramData"
   if ($null -ne $ReleaseCache) { $ReleaseCache.Tags = $null }
   $env:PROCESSOR_ARCHITECTURE = "AMD64"
 }
@@ -226,6 +231,54 @@ Test-Case "the token is never sent with a binary or SHA256SUMS download" {
 Test-Case "the API failure message mentions GITHUB_TOKEN" {
   $Mock.FailPage = 1
   (Get-Failure { Show-List }) -match "GITHUB_TOKEN"
+}
+
+# ---- -List shows what is installed ----------------------------------------------
+# Show-List prints with Write-Host (stream 6); capture it as one string.
+function Get-ListOutput { (Show-List 6>&1 | Out-String) }
+
+Test-Case "-List shows nothing extra for a driver that is not installed" {
+  (Get-ListOutput) -notmatch "installed "
+}
+Test-Case "-List shows an older installed version and flags the update" {
+  $Mock.Download = "ok"
+  $Version = "0.9.7"; Install-Driver "arpemssql" *> $null
+  $Version = "latest"
+  (Get-ListOutput) -match "(?m)arpemssql .* 0\.9\.120 .*installed 0\.9\.7, user \(update available\)"
+}
+Test-Case "-List prints the command that updates an outdated driver" {
+  $Mock.Download = "ok"
+  $Version = "0.9.7"; Install-Driver "arpemssql" *> $null
+  $Version = "latest"
+  (Get-ListOutput) -match "(?m)^  install\.ps1 arpemssql\r?$"
+}
+Test-Case "-List says an installed latest version is up to date, with no update command" {
+  $Mock.Download = "ok"
+  Install-Driver "arpemssql" *> $null
+  $o = Get-ListOutput
+  ($o -match "arpemssql .*installed 0\.9\.120, user \(up to date\)") -and ($o -notmatch "Update with")
+}
+Test-Case "the update command for a -Prefix install repeats the prefix" {
+  $Mock.Download = "ok"
+  $custom = Join-Path $env:LOCALAPPDATA "custom"
+  $Version = "0.9.7"; $Prefix = $custom; Install-Driver "arpemssql" *> $null
+  $Version = "latest"; $Prefix = ""
+  (Get-ListOutput).Contains("  install.ps1 arpemssql -Prefix $custom")
+}
+Test-Case "the update command for a system install says -Scope system" {
+  $Mock.Download = "ok"
+  $Version = "0.9.7"; $Scope = "system"; Install-Driver "arpemssql" *> $null
+  $Version = "latest"; $Scope = "user"
+  (Get-ListOutput) -match "(?m)^  install\.ps1 arpemssql -Scope system\r?$"
+}
+# Re-running the install is the update path: it must keep the licence in place.
+Test-Case "re-running the install updates the version and keeps the licence" {
+  $Mock.Download = "ok"
+  $lic = Join-Path $env:LOCALAPPDATA "my.lic"; Set-Content -Path $lic -Value "LIC"
+  $Version = "0.9.7"; $License = $lic; Install-Driver "arpemssql" *> $null
+  $Version = "latest"; $License = ""; Install-Driver "arpemssql" *> $null
+  ((Read-ManifestVersion (Get-TestManifest)) -eq "0.9.120") -and
+    (Test-Path (Join-Path (Split-Path -Parent (Get-TestLib)) "arpeio_adbc.lic"))
 }
 
 # ---- machine ADBC_DRIVER_PATH (-Scope system) ------------------------------------
