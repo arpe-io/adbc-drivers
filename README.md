@@ -3,8 +3,8 @@
 [![CI](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml/badge.svg)](https://github.com/arpe-io/adbc-drivers/actions/workflows/lint.yml)
 [![installer](https://img.shields.io/badge/installer-v0.2.2-2b8a3e)](https://github.com/arpe-io/adbc-drivers/releases)
 [![License: MIT](https://img.shields.io/github/license/arpe-io/adbc-drivers)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows-informational)
-[![Docs](https://img.shields.io/badge/docs-arpe--io.github.io-1f6feb)](https://arpe-io.github.io/arpeio-adbc-drivers-docs/)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20x64%20%7C%20Windows%20x64-informational)
+[![Docs](https://img.shields.io/badge/docs-adbc--drivers--docs.arpe.io-1f6feb)](https://adbc-drivers-docs.arpe.io/)
 
 One-line installers for the Arpeio family of [ADBC](https://arrow.apache.org/adbc/)
 drivers. Each driver is a pure-native, high-performance ADBC driver that returns
@@ -26,15 +26,16 @@ compatibility, and troubleshooting.
 | Teradata | ArpeTeradata | `arpeteradata` | ✅ Published |
 | IBM Db2 | ArpeDb2 | `arpedb2` | ✅ Published |
 
-Only the drivers marked **Published** are downloadable today; run
-`… install.sh --list` for the authoritative, always-current list. Each driver's
-connection guide, data-type mapping, and compatibility matrix live on the
-[documentation site](https://arpe-io.github.io/arpeio-adbc-drivers-docs/) —
-[ArpeMSSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpemssql/),
-[ArpePGSQL](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpepgsql/),
-[ArpeOracle](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeoracle/),
-[ArpeNetezza](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpenetezza/),
-[ArpeTeradata](https://arpe-io.github.io/arpeio-adbc-drivers-docs/drivers/arpeteradata/).
+All six drivers are published for Linux x64 and Windows x64; run
+`… install.sh --list` for the latest version of each. Each driver's connection
+guide, data-type mapping, and compatibility matrix live on the
+[documentation site](https://adbc-drivers-docs.arpe.io/) —
+[ArpeMSSQL](https://adbc-drivers-docs.arpe.io/drivers/arpemssql),
+[ArpePGSQL](https://adbc-drivers-docs.arpe.io/drivers/arpepgsql),
+[ArpeOracle](https://adbc-drivers-docs.arpe.io/drivers/arpeoracle),
+[ArpeNetezza](https://adbc-drivers-docs.arpe.io/drivers/arpenetezza),
+[ArpeTeradata](https://adbc-drivers-docs.arpe.io/drivers/arpeteradata),
+[ArpeDb2](https://adbc-drivers-docs.arpe.io/drivers/arpedb2).
 
 The driver *binaries* are published here as public GitHub Releases and are free
 to download. They are **licence-gated**: a driver requires a valid Arpeio licence
@@ -42,7 +43,7 @@ at runtime — there is no trial build. Contact <sales@arpe.io> for a licence.
 
 ## Install
 
-**Linux / macOS:**
+**Linux:**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
@@ -97,7 +98,7 @@ ready-to-use `<driver>.toml` manifest **next to it**, into the directory you cho
 with `--dir` / `-Dir` (default: the current directory). Nothing else is touched: no
 system directory, no licence file, no environment variable.
 
-**Linux / macOS:**
+**Linux:**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh \
@@ -135,7 +136,7 @@ access at install time**.
 then download the driver bundle. `--download-only` writes the driver binary, a
 `<driver>.toml` manifest, and the release `SHA256SUMS` into the bundle directory.
 
-Linux / macOS:
+Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.sh -o install.sh
@@ -157,7 +158,7 @@ bundle. It re-verifies the binary against the bundled `SHA256SUMS`, installs int
 standard location, writes the ADBC manifest, and copies your licence — all with no
 network calls.
 
-Linux / macOS:
+Linux:
 
 ```sh
 sh install.sh arpemssql --offline --dir ./arpemssql-bundle --license ./your.lic
@@ -261,9 +262,8 @@ connect time. It checks, in order:
 ## Manifest search paths (advanced)
 
 The installer writes `<driver>.toml` where the ADBC driver manager searches:
-`~/.config/adbc/drivers` (Linux) · `~/Library/Application Support/ADBC/Drivers`
-(macOS) · `%LOCALAPPDATA%\ADBC\Drivers` (Windows), or the system equivalents with
-`--system`. If your client can't find it, point `ADBC_DRIVER_PATH` at the
+`~/.config/adbc/drivers` (Linux) · `%LOCALAPPDATA%\ADBC\Drivers` (Windows), or
+the system equivalents with `--system`. If your client can't find it, point `ADBC_DRIVER_PATH` at the
 directory the installer reports.
 
 ## Troubleshooting
