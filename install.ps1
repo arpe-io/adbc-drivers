@@ -71,6 +71,34 @@ function Get-PlatformArch {
 function Get-UserManifestDir   { Join-Path $env:LOCALAPPDATA "ADBC\Drivers" }
 function Get-SystemManifestDir { Join-Path $env:ProgramData "arpeio-adbc\adbc\drivers" }
 
+# The value ADBC_DRIVER_PATH must take for $dir to be on it. On Windows the
+# variable is a semicolon-separated list of directories, and other software may
+# have put its own there: the existing entries are kept and $dir is appended,
+# unless it is already listed (compared without case or a trailing backslash),
+# in which case $current is returned unchanged.
+function Join-DriverPath {
+  param([string]$current, [string]$dir)
+  $wanted = $dir.Trim().TrimEnd('\')
+  $entries = @($current -split ';' | Where-Object { $_.Trim() })
+  foreach ($e in $entries) {
+    if ($e.Trim().TrimEnd('\') -ieq $wanted) { return $current }
+  }
+  return (@($entries) + $dir) -join ';'
+}
+
+# Put the system manifest dir on the machine ADBC_DRIVER_PATH (-Scope system).
+function Add-MachineDriverPath {
+  param([string]$mandir)
+  $current = [Environment]::GetEnvironmentVariable("ADBC_DRIVER_PATH", "Machine")
+  $wanted = Join-DriverPath $current $mandir
+  if ($wanted -ceq $current) {
+    Write-Info "  ($mandir is already on the machine ADBC_DRIVER_PATH)"
+  } else {
+    [Environment]::SetEnvironmentVariable("ADBC_DRIVER_PATH", $wanted, "Machine")
+    Write-Info "  (added $mandir to the machine ADBC_DRIVER_PATH; open a new shell)"
+  }
+}
+
 # Read fields back out of an installed manifest (source of truth for uninstall).
 function Read-ManifestVersion {
   param([string]$path)
@@ -372,7 +400,7 @@ function Install-Driver {
 
   # No auto-searched system directory exists on Windows for .toml manifests (the
   # system mechanism is the registry); -Scope system installs to a stable
-  # ProgramData dir added to the machine ADBC_DRIVER_PATH.
+  # ProgramData dir appended to the machine ADBC_DRIVER_PATH.
   if ($Scope -eq "system") { $mandir = Get-SystemManifestDir } else { $mandir = Get-UserManifestDir }
 
   Write-Info "Installing $name $ver ($manifestKey)"
@@ -400,8 +428,7 @@ function Install-Driver {
     Write-Info "  library:  $libpath"
     Write-Info "  manifest: $manifestFile"
     if ($Scope -eq "system") {
-      [Environment]::SetEnvironmentVariable("ADBC_DRIVER_PATH", $mandir, "Machine")
-      Write-Info "  (added $mandir to the machine ADBC_DRIVER_PATH; open a new shell)"
+      Add-MachineDriverPath $mandir
     }
     if (-not (Test-Path $licDest)) {
       Write-Info ""
@@ -563,8 +590,7 @@ function Install-DriverOffline {
   Write-Info "  library:  $libpath"
   Write-Info "  manifest: $manifestFile"
   if ($Scope -eq "system") {
-    [Environment]::SetEnvironmentVariable("ADBC_DRIVER_PATH", $mandir, "Machine")
-    Write-Info "  (added $mandir to the machine ADBC_DRIVER_PATH; open a new shell)"
+    Add-MachineDriverPath $mandir
   }
   if (-not (Test-Path $licDest)) {
     Write-Info ""

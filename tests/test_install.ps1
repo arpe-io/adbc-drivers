@@ -197,6 +197,29 @@ Test-Case "-DownloadOnly -SkipChecksum downloads without SHA256SUMS" {
   Test-Path (Join-Path $Dir "arpemssql_adbc_driver-win-x64.dll")
 }
 
+# ---- machine ADBC_DRIVER_PATH (-Scope system) ------------------------------------
+Test-Case "the manifest dir becomes the driver path when none is set" {
+  (Join-DriverPath "" 'C:\ProgramData\arpeio-adbc\adbc\drivers') -eq 'C:\ProgramData\arpeio-adbc\adbc\drivers'
+}
+Test-Case "the manifest dir is appended to an existing driver path" {
+  (Join-DriverPath 'C:\other\drivers' 'C:\ProgramData\arpeio-adbc\adbc\drivers') -eq
+    'C:\other\drivers;C:\ProgramData\arpeio-adbc\adbc\drivers'
+}
+Test-Case "an existing driver path with several directories is kept whole" {
+  (Join-DriverPath 'C:\a;C:\b' 'C:\c') -eq 'C:\a;C:\b;C:\c'
+}
+Test-Case "a manifest dir already on the driver path is not added twice" {
+  (Join-DriverPath 'C:\a;C:\ProgramData\arpeio-adbc\adbc\drivers' 'C:\ProgramData\arpeio-adbc\adbc\drivers') -eq
+    'C:\a;C:\ProgramData\arpeio-adbc\adbc\drivers'
+}
+Test-Case "the driver path comparison ignores case and a trailing backslash" {
+  (Join-DriverPath 'c:\programdata\ARPEIO-adbc\adbc\drivers\' 'C:\ProgramData\arpeio-adbc\adbc\drivers') -eq
+    'c:\programdata\ARPEIO-adbc\adbc\drivers\'
+}
+Test-Case "empty entries in the driver path are dropped when appending" {
+  (Join-DriverPath 'C:\a;;' 'C:\c') -eq 'C:\a;C:\c'
+}
+
 Remove-Item -Recurse -Force $Work -ErrorAction SilentlyContinue
 Write-Host ""
 Write-Host "$Pass passed, $Failed failed"
