@@ -28,7 +28,7 @@ $Fixture = @()
 foreach ($i in 120..1) { $Fixture += "arpemssql-v0.9.$i" }
 $Fixture += "arpeteradata-v0.3.8", "arpeteradata-v0.3.6"
 
-$Mock = @{ Calls = 0; FailPage = 0; Endless = $false }
+$Mock = @{ Calls = 0; FailPage = 0; Endless = $false; Download = "fail"; Sums = "ok"; LastAsset = $null }
 
 # Serves the fixture 100 releases per page, honouring `page=N`; counts its calls;
 # throws on page $Mock.FailPage; with $Mock.Endless, ignores `page=` altogether.
@@ -44,13 +44,33 @@ function Invoke-RestMethod {
   # Like the real cmdlet, hand back the JSON array as a single object.
   return , @($slice | ForEach-Object { [pscustomobject]@{ tag_name = $_ } })
 }
-# No test may download anything.
-function Invoke-WebRequest { throw "download blocked by the test" }
+# No test may download anything: this fails unless $Mock.Download is "ok". Then it
+# writes a fake driver binary, and for SHA256SUMS a matching checksum line - or
+# none at all ($Mock.Sums = "missing") or a wrong one ("bad").
+function Invoke-WebRequest {
+  param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing, $Headers)
+  $null = $UseBasicParsing, $Headers
+  if ($Mock.Download -ne "ok") { throw "download blocked by the test" }
+  if ($Uri -like "*/SHA256SUMS") {
+    if ($Mock.Sums -eq "missing") { throw "Response status code does not indicate success: 404 (Not Found)." }
+    $hash = if ($Mock.Sums -eq "bad") { "0000000000000000" }
+            else { (Get-FileHash -Algorithm SHA256 -Path $Mock.LastAsset).Hash.ToLower() }
+    Set-Content -Path $OutFile -Value "$hash  $(Split-Path -Leaf $Mock.LastAsset)"
+  } else {
+    Set-Content -Path $OutFile -Value "driver binary from $Uri"
+    $Mock.LastAsset = $OutFile
+  }
+}
 
 $Pass = 0
 $Failed = 0
 function Reset-State {
   $Mock.Calls = 0; $Mock.FailPage = 0; $Mock.Endless = $false
+  $Mock.Download = "fail"; $Mock.Sums = "ok"; $Mock.LastAsset = $null
+  # A fresh, empty profile for every test.
+  $script:TestProfile = Join-Path $Work ([guid]::NewGuid())
+  New-Item -ItemType Directory -Path $script:TestProfile | Out-Null
+  $env:LOCALAPPDATA = $script:TestProfile
   if ($null -ne $ReleaseCache) { $ReleaseCache.Tags = $null }
   $env:PROCESSOR_ARCHITECTURE = "AMD64"
 }
@@ -127,6 +147,54 @@ Test-Case "arm64 is rejected before any download is attempted" {
 }
 Test-Case "x64 is still accepted" {
   (Get-PlatformArch).manifest -eq "amd64"
+}
+
+# ---- checksum verification ------------------------------------------------------
+# Where a default (user-scope) install of arpemssql lands in the scratch profile.
+function Get-TestLib { Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA "arpeio-adbc") "arpemssql") "arpemssql_adbc_driver-win-x64.dll" }
+function Get-TestManifest { Join-Path (Get-UserManifestDir) "arpemssql.toml" }
+
+Test-Case "an install verifies the download and writes the library and manifest" {
+  $Mock.Download = "ok"
+  $Version = "0.9.7"
+  Install-Driver "arpemssql" *> $null
+  (Test-Path (Get-TestLib)) -and ((Read-ManifestVersion (Get-TestManifest)) -eq "0.9.7")
+}
+Test-Case "a checksum mismatch stops the install and installs nothing" {
+  $Mock.Download = "ok"; $Mock.Sums = "bad"
+  $Version = "0.9.7"
+  $m = Get-Failure { Install-Driver "arpemssql" }
+  ($m -match "checksum mismatch") -and -not (Test-Path (Get-TestLib))
+}
+Test-Case "an install fails when the release SHA256SUMS cannot be downloaded" {
+  $Mock.Download = "ok"; $Mock.Sums = "missing"
+  $Version = "0.9.7"
+  $m = Get-Failure { Install-Driver "arpemssql" }
+  ($m -match "SHA256SUMS") -and ($m -match "SkipChecksum")
+}
+Test-Case "a missing SHA256SUMS installs nothing" {
+  $Mock.Download = "ok"; $Mock.Sums = "missing"
+  $Version = "0.9.7"
+  $null = Get-Failure { Install-Driver "arpemssql" }
+  -not (Test-Path (Get-TestLib)) -and -not (Test-Path (Get-TestManifest))
+}
+Test-Case "-SkipChecksum installs without SHA256SUMS" {
+  $Mock.Download = "ok"; $Mock.Sums = "missing"
+  $Version = "0.9.7"; $SkipChecksum = $true
+  Install-Driver "arpemssql" *> $null
+  Test-Path (Get-TestLib)
+}
+Test-Case "-DownloadOnly fails when the release SHA256SUMS cannot be downloaded" {
+  $Mock.Download = "ok"; $Mock.Sums = "missing"
+  $Version = "0.9.7"; $Dir = Join-Path $env:LOCALAPPDATA "bundle"
+  $m = Get-Failure { Save-Driver "arpemssql" }
+  ($m -match "SHA256SUMS") -and -not (Test-Path (Join-Path $Dir "arpemssql_adbc_driver-win-x64.dll"))
+}
+Test-Case "-DownloadOnly -SkipChecksum downloads without SHA256SUMS" {
+  $Mock.Download = "ok"; $Mock.Sums = "missing"
+  $Version = "0.9.7"; $SkipChecksum = $true; $Dir = Join-Path $env:LOCALAPPDATA "bundle"
+  Save-Driver "arpemssql" *> $null
+  Test-Path (Join-Path $Dir "arpemssql_adbc_driver-win-x64.dll")
 }
 
 Remove-Item -Recurse -Force $Work -ErrorAction SilentlyContinue

@@ -203,7 +203,9 @@ Arpeio ADBC driver installer (Windows)
 Usage:
   install.ps1 <driver> [-Version <X.Y.Z|latest>] [-Scope user|system]
               [-License <path> | -LicenseContent <text>] [-Prefix <dir>]
+              [-SkipChecksum]
   install.ps1 <driver> -DownloadOnly [-Version <X.Y.Z|latest>] [-Dir <path>]
+              [-SkipChecksum]
   install.ps1 <driver> -Offline [-Dir <path>] [-Version <X.Y.Z>] [-Scope user|system]
               [-License <path> | -LicenseContent <text>] [-Prefix <dir>]
               [-SkipChecksum]
@@ -227,9 +229,10 @@ Drivers: $($Registry.Keys -join ', ')
                    from the bundled manifest unless -Version is given.
   -Dir             Bundle directory: destination for -DownloadOnly, source for
                    -Offline (default: current dir).
-  -SkipChecksum    (-Offline only) Install without checksum verification. Use only
-                   if the bundle has no SHA256SUMS on purpose; otherwise a missing
-                   SHA256SUMS is treated as an incomplete bundle and fails.
+  -SkipChecksum    Continue without checksum verification. By default the download
+                   (or, with -Offline, the bundle) is verified against the release
+                   SHA256SUMS, and a SHA256SUMS that is missing or cannot be
+                   downloaded stops the command.
   -Versions        List every published version of each driver (or one driver,
                    if named), newest first.
   -Installed       List the drivers installed on this machine (both scopes by
@@ -287,24 +290,36 @@ function Test-LocalChecksum {
   Write-Info "  checksum OK"
 }
 
-# Verify $dest against the release SHA256SUMS (best-effort): a missing SHA256SUMS
-# is only a warning, but a checksum mismatch (or a SHA256SUMS with no entry for
-# the asset) is fatal.
+# Verify $dest against the release SHA256SUMS, which is saved to $sumsFile. Every
+# release ships a SHA256SUMS, so one that cannot be downloaded is fatal, like a
+# mismatch or a SHA256SUMS with no entry for the asset: an unverified binary is
+# never installed silently. -SkipChecksum turns the whole check off.
 function Test-Checksum {
-  param([string]$sumsUrl, [string]$asset, [string]$tmp, [string]$dest)
-  try {
-    # Download to a file and read it back as text. On Windows PowerShell 5.1,
-    # Invoke-WebRequest returns .Content as a byte[] (not a string) for
-    # application/octet-stream responses like SHA256SUMS, so an in-memory
-    # `.Content -split` splits each byte individually and never matches.
-    # -OutFile + Get-Content -Raw always yields text; -UseBasicParsing also
-    # avoids the IE DOM parser (the "risque d'execution de script" prompt) on 5.1.
-    $sumsFile = Join-Path $tmp "SHA256SUMS"
-    Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-    Test-LocalChecksum $sumsFile $asset $dest
-  } catch [System.Net.WebException] {
-    Write-Info "  warning: no SHA256SUMS in the release - skipping checksum verification"
+  param([string]$sumsUrl, [string]$asset, [string]$dest, [string]$sumsFile)
+  if ($SkipChecksum) {
+    Write-Info "  warning: -SkipChecksum given - continuing without checksum verification"
+    return
   }
+  # Download to a file and read it back as text. On Windows PowerShell 5.1,
+  # Invoke-WebRequest returns .Content as a byte[] (not a string) for
+  # application/octet-stream responses like SHA256SUMS, so an in-memory
+  # `.Content -split` splits each byte individually and never matches.
+  # -OutFile + Get-Content -Raw always yields text; -UseBasicParsing also
+  # avoids the IE DOM parser (the "risque d'execution de script" prompt) on 5.1.
+  # Catch everything: the exception type differs between Windows PowerShell 5.1
+  # and PowerShell 7. Fail is called outside the try so it is not caught here.
+  $failure = $null
+  try {
+    Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+  } catch {
+    $failure = "$_"
+  }
+  if ($failure) {
+    Fail ("could not download the release SHA256SUMS, so the download cannot be verified: $failure`n" +
+          "  ($sumsUrl)`n" +
+          "  re-run the command, or pass -SkipChecksum to continue without verification")
+  }
+  Test-LocalChecksum $sumsFile $asset $dest
 }
 
 # Write the ADBC driver manifest for $name at $manifestFile, pointing at $libpath.
@@ -367,7 +382,7 @@ function Install-Driver {
   try {
     $dest = Join-Path $tmp $asset
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-    Test-Checksum $sumsUrl $asset $tmp $dest
+    Test-Checksum $sumsUrl $asset $dest (Join-Path $tmp "SHA256SUMS")
 
     New-Item -ItemType Directory -Force -Path $libdir, $mandir | Out-Null
     $libpath = Join-Path $libdir $asset
@@ -444,12 +459,7 @@ function Save-Driver {
     # Save SHA256SUMS into the bundle (not the temp dir) so it can be verified later
     # by an offline install (see -Offline).
     $sumsFile = Join-Path $destdir "SHA256SUMS"
-    try {
-      Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
-      Test-LocalChecksum $sumsFile $asset $dest
-    } catch [System.Net.WebException] {
-      Write-Info "  warning: no SHA256SUMS in the release - skipping checksum verification"
-    }
+    Test-Checksum $sumsUrl $asset $dest $sumsFile
 
     $libpath = Join-Path $destdir $asset
     Move-Item -Force $dest $libpath
@@ -461,7 +471,7 @@ function Save-Driver {
     Write-Info "Downloaded:"
     Write-Info "  library:   $libpath"
     Write-Info "  manifest:  $manifestFile"
-    Write-Info "  checksums: $sumsFile"
+    if (Test-Path $sumsFile) { Write-Info "  checksums: $sumsFile" }
     Write-Info ""
     Write-Info "To load it by name, point the ADBC driver manager at this directory:"
     Write-Info "  setx ADBC_DRIVER_PATH `"$destdir`""

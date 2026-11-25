@@ -67,16 +67,22 @@ verify_local_checksum() { # <sums_file> <asset> <asset_path>
   info "  checksum OK"
 }
 
-# Verify $tmp/$asset against the release SHA256SUMS (best-effort): a missing
-# SHA256SUMS is only a warning, but a checksum mismatch — or a SHA256SUMS with no
-# entry for the asset — is fatal.
-verify_checksum() { # <sums_url> <asset> <tmp>
-  _sums_url=$1; _asset=$2; _tmp=$3
-  if download "$_sums_url" "$_tmp/SHA256SUMS" 2>/dev/null; then
-    verify_local_checksum "$_tmp/SHA256SUMS" "$_asset" "$_tmp/$_asset"
-  else
-    info "  warning: no SHA256SUMS in the release — skipping checksum verification"
+# Verify <asset_path> against the release SHA256SUMS, which is saved to
+# <sums_dest>. Every release ships a SHA256SUMS, so one that cannot be downloaded
+# is fatal, like a mismatch or a SHA256SUMS with no entry for the asset: an
+# unverified binary is never installed silently. --skip-checksum turns the whole
+# check off.
+verify_checksum() { # <sums_url> <asset> <asset_path> <sums_dest>
+  _sums_url=$1; _asset=$2; _path=$3; _sums_dest=$4
+  if [ "$SKIP_CHECKSUM" = 1 ]; then
+    info "  warning: --skip-checksum given — continuing without checksum verification"
+    return 0
   fi
+  download "$_sums_url" "$_sums_dest" 2>/dev/null \
+    || err "could not download the release SHA256SUMS, so the download cannot be verified
+  ($_sums_url)
+  re-run the command, or pass --skip-checksum to continue without verification"
+  verify_local_checksum "$_sums_dest" "$_asset" "$_path"
 }
 
 # Detect OS + the two arch spellings we need:
@@ -173,7 +179,9 @@ Arpeio ADBC driver installer
 Usage:
   install.sh <driver> [--version <X.Y.Z|latest>] [--user|--system]
              [--license <path> | --license-content <text>] [--prefix <dir>]
+             [--skip-checksum]
   install.sh <driver> --download-only [--version <X.Y.Z|latest>] [--dir <path>]
+             [--skip-checksum]
   install.sh <driver> --offline [--dir <path>] [--version <X.Y.Z>] [--user|--system]
              [--license <path> | --license-content <text>] [--prefix <dir>]
              [--skip-checksum]
@@ -207,10 +215,10 @@ Options:
                      is read from the bundled manifest unless --version is given.
   --dir              Bundle directory: destination for --download-only, source for
                      --offline (default: current dir).
-  --skip-checksum    (--offline only) Install without checksum verification. Use
-                     only if the bundle has no SHA256SUMS on purpose; otherwise a
-                     missing SHA256SUMS is treated as an incomplete bundle and
-                     fails.
+  --skip-checksum    Continue without checksum verification. By default the
+                     download (or, with --offline, the bundle) is verified against
+                     the release SHA256SUMS, and a SHA256SUMS that is missing or
+                     cannot be downloaded stops the command.
   --installed        List the drivers installed on this machine (both scopes by
                      default; narrow with --user/--system).
   --uninstall        Remove a driver: its library, copied licence, and manifest.
@@ -363,7 +371,7 @@ do_install() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/arpeio-adbc.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT INT TERM
   download "$url" "$tmp/$asset" || err "download failed (is ${name} ${ver} published for ${OS_ASSET}-${ASSET_ARCH}?)"
-  verify_checksum "$sums_url" "$asset" "$tmp"
+  verify_checksum "$sums_url" "$asset" "$tmp/$asset" "$tmp/SHA256SUMS"
 
   mkdir -p "$libdir" "$mandir" || err "cannot create install dirs (try --user, or sudo for --system)"
   libpath="$libdir/$asset"
@@ -437,11 +445,7 @@ do_download() {
   download "$url" "$tmp/$asset" || err "download failed (is ${name} ${ver} published for ${OS_ASSET}-${ASSET_ARCH}?)"
   # Save SHA256SUMS into the bundle (not the temp dir) so it can be verified later
   # by an offline install (see --offline).
-  if download "$sums_url" "$destdir/SHA256SUMS" 2>/dev/null; then
-    verify_local_checksum "$destdir/SHA256SUMS" "$asset" "$tmp/$asset"
-  else
-    info "  warning: no SHA256SUMS in the release — skipping checksum verification"
-  fi
+  verify_checksum "$sums_url" "$asset" "$tmp/$asset" "$destdir/SHA256SUMS"
 
   libpath="$destdir/$asset"
   mv "$tmp/$asset" "$libpath"
@@ -454,7 +458,7 @@ do_download() {
   info "Downloaded:"
   info "  library:   $libpath"
   info "  manifest:  $manifest"
-  info "  checksums: $destdir/SHA256SUMS"
+  if [ -f "$destdir/SHA256SUMS" ]; then info "  checksums: $destdir/SHA256SUMS"; fi
   info ""
   info "To load it by name, point the ADBC driver manager at this directory:"
   info "  export ADBC_DRIVER_PATH=$destdir"

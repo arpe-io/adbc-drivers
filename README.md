@@ -73,7 +73,8 @@ curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.s
 
 1. Downloads the driver's shared library for your OS/arch from this repo's
    Releases (tag `<driver>-v<version>`, e.g. `arpemssql-v0.5.19`) and verifies it
-   against the release `SHA256SUMS`.
+   against the release `SHA256SUMS`. Nothing is installed if the checksum does
+   not match or the `SHA256SUMS` cannot be downloaded.
 2. Installs the library (default: per-user, under `~/.local/lib/arpeio-adbc/`
    on Unix / `%LOCALAPPDATA%\arpeio-adbc\` on Windows; `--system` / `-Scope
    system` for a machine-wide install).
@@ -215,7 +216,7 @@ to remove a machine-wide one. On Windows, use `-Installed` and
 | `--download-only` | `-DownloadOnly` | Just download the binary + manifest + `SHA256SUMS` into a dir (see [Download only](#download-only)); no managed install. |
 | `--offline` | `-Offline` | Managed install from a pre-downloaded bundle with no network (see [Offline / air-gapped install](#offline--air-gapped-install)). |
 | `--dir <dir>` | `-Dir <dir>` | Bundle directory: destination for `--download-only`, source for `--offline` (default: current dir). |
-| `--skip-checksum` | `-SkipChecksum` | (`--offline` only) Install without checksum verification; otherwise a missing `SHA256SUMS` fails as an incomplete bundle. |
+| `--skip-checksum` | `-SkipChecksum` | Continue without checksum verification. By default a `SHA256SUMS` that is missing or cannot be downloaded stops the command. |
 | `--list` | `-List` | List *available* drivers + latest published versions. |
 | `--versions [<driver>]` | `-Versions [<driver>]` | List *every* published version (all drivers, or one). |
 | `--installed` | `-Installed` | List the drivers *installed* on this machine. |
@@ -273,6 +274,11 @@ directory the installer reports.
 Re-run the installer; if it persists, download the release asset manually from the
 [Releases](https://github.com/arpe-io/adbc-drivers/releases) page and compare with
 `sha256sum`.
+
+**`could not download the release SHA256SUMS`.** The installer refuses to install a
+binary it cannot verify. This is usually a network hiccup: re-run the command.
+`--skip-checksum` / `-SkipChecksum` continues without verification, at your own
+risk.
 
 **Client can't find the driver / "driver not found".** The ADBC driver manager did
 not see the manifest. Confirm the install with `… install.sh --installed`, then
