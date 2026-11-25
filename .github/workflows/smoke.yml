@@ -81,7 +81,8 @@ jobs:
 
       - name: Latest version of every driver resolves
         run: |
-          $out = (.\install.ps1 -List 6>&1 | Out-String)
+          # Joined by hand: Out-String would wrap long lines at the console width.
+          $out = (.\install.ps1 -List 6>&1 | ForEach-Object { "$_" }) -join "`n"
           Write-Host $out
           if ($out -match 'not published yet') { throw "a driver has no published version" }
           $names = (Get-Content -Raw registry.json | ConvertFrom-Json).drivers.PSObject.Properties.Name
@@ -110,9 +111,9 @@ jobs:
           $path = [Environment]::GetEnvironmentVariable("ADBC_DRIVER_PATH", "Machine")
           if ($path -ne "$other;$ours") { throw "machine ADBC_DRIVER_PATH is '$path' after the install" }
 
-          $out = (.\install.ps1 -Installed 6>&1 | Out-String); Write-Host $out
+          $out = (.\install.ps1 -Installed 6>&1 | ForEach-Object { "$_" }) -join "`n"; Write-Host $out
           if ($out -notmatch "(?m)^  $d .* system ") { throw "$d is not listed as installed at system scope" }
-          $out = (.\install.ps1 -List 6>&1 | Out-String); Write-Host $out
+          $out = (.\install.ps1 -List 6>&1 | ForEach-Object { "$_" }) -join "`n"; Write-Host $out
           if ($out -notmatch "(?m)^  $d .*system \(up to date\)") { throw "$d is not listed as up to date" }
 
           .\install.ps1 $d -Scope system
@@ -120,5 +121,5 @@ jobs:
           if ($path -ne "$other;$ours") { throw "machine ADBC_DRIVER_PATH is '$path' after a second install" }
 
           .\install.ps1 -Uninstall $d -Scope system
-          $out = (.\install.ps1 -Installed 6>&1 | Out-String); Write-Host $out
+          $out = (.\install.ps1 -Installed 6>&1 | ForEach-Object { "$_" }) -join "`n"; Write-Host $out
           if ($out -notmatch "none installed") { throw "a driver is still installed" }

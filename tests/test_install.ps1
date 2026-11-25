@@ -234,8 +234,10 @@ Test-Case "the API failure message mentions GITHUB_TOKEN" {
 }
 
 # ---- -List shows what is installed ----------------------------------------------
-# Show-List prints with Write-Host (stream 6); capture it as one string.
-function Get-ListOutput { (Show-List 6>&1 | Out-String) }
+# Show-List prints with Write-Host (stream 6); capture it as one string. The
+# lines are joined by hand: Out-String would wrap them at the console width
+# (80 columns on Windows PowerShell 5.1), cutting a long path in two.
+function Get-ListOutput { (Show-List 6>&1 | ForEach-Object { "$_" }) -join "`n" }
 
 Test-Case "-List shows nothing extra for a driver that is not installed" {
   (Get-ListOutput) -notmatch "installed "
