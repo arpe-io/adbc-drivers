@@ -225,6 +225,10 @@ run 'DL_MODE=ok; VERSION=0.9.7; PREFIX="$HOME/custom"; do_install arpemssql; PRE
 check "the update command for a --prefix install repeats the prefix" \
   err_has "install\.sh arpemssql --prefix $WORK/home/custom\$"
 
+run 'DL_MODE=ok; VERSION=0.9.7; PREFIX="$HOME/my drivers"; do_install arpemssql; PREFIX=""; VERSION=latest; do_list'
+check "a prefix containing a space is quoted in the update command" \
+  err_has "install\.sh arpemssql --prefix \"$WORK/home/my drivers\"\$"
+
 run 'DL_MODE=ok; VERSION=0.9.7; SCOPE=system; PREFIX="$SYSROOT/opt"; do_install arpemssql; SCOPE=user; PREFIX=""; VERSION=latest; do_list'
 check "the update command for a system install says --system" \
   err_has "install\.sh arpemssql --system --prefix $WORK/sys/opt\$"

@@ -267,6 +267,13 @@ Test-Case "the update command for a -Prefix install repeats the prefix" {
   $Version = "latest"; $Prefix = ""
   (Get-ListOutput).Contains("  install.ps1 arpemssql -Prefix $custom")
 }
+Test-Case "a prefix containing a space is quoted in the update command" {
+  $Mock.Download = "ok"
+  $custom = Join-Path $env:LOCALAPPDATA "my drivers"
+  $Version = "0.9.7"; $Prefix = $custom; Install-Driver "arpemssql" *> $null
+  $Version = "latest"; $Prefix = ""
+  (Get-ListOutput).Contains("  install.ps1 arpemssql -Prefix '$custom'")
+}
 Test-Case "the update command for a system install says -Scope system" {
   $Mock.Download = "ok"
   $Version = "0.9.7"; $Scope = "system"; Install-Driver "arpemssql" *> $null

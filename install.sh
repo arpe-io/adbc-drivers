@@ -337,7 +337,11 @@ update_args() { # <name> <scope> <libpath>
   if [ "$2" = system ]; then _ua="$_ua --system"; fi
   _ld=$(dirname "$3")
   if [ "$_ld" != "$(default_libdir "$1" "$2")" ] && [ "$(basename "$_ld")" = "$1" ]; then
-    _ua="$_ua --prefix $(dirname "$_ld")"
+    _pf=$(dirname "$_ld")
+    case "$_pf" in
+      *[[:space:]]*) _ua="$_ua --prefix \"$_pf\"" ;;   # quoted so it can be pasted
+      *) _ua="$_ua --prefix $_pf" ;;
+    esac
   fi
   printf '%s\n' "$_ua"
 }

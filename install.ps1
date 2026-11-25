@@ -218,7 +218,9 @@ function Get-UpdateArgument {
   if ($libpath) {
     $libdir = Split-Path -Parent $libpath
     if (($libdir -ine (Get-DefaultLibDir $name $scope)) -and ((Split-Path -Leaf $libdir) -ieq $name)) {
-      $cmd += " -Prefix $(Split-Path -Parent $libdir)"
+      $prefix = Split-Path -Parent $libdir
+      # Quoted when it holds a space, so the command can be pasted as is.
+      if ($prefix -match '\s') { $cmd += " -Prefix '$prefix'" } else { $cmd += " -Prefix $prefix" }
     }
   }
   return $cmd

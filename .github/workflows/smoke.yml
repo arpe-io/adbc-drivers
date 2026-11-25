@@ -41,7 +41,9 @@ jobs:
 
       - name: Latest version of every driver resolves
         run: |
-          sh install.sh --list 2>&1 | tee list.txt
+          # Not piped into tee: without pipefail a failed listing would pass.
+          sh install.sh --list > list.txt 2>&1 || { cat list.txt; exit 1; }
+          cat list.txt
           if grep -q 'not published yet' list.txt; then
             echo "a driver has no published version"; exit 1
           fi
@@ -61,13 +63,15 @@ jobs:
           d=$(jq -r --argjson i "$index" '.drivers | keys_unsorted[$i]' registry.json)
           echo "driver: $d"
 
+          # Outputs go to a file, not through tee: with set -e and no pipefail, a
+          # failing installer in a pipeline would not stop the step.
           sh install.sh "$d"
-          sh install.sh --installed 2>&1 | tee installed.txt
+          sh install.sh --installed > installed.txt 2>&1; cat installed.txt
           grep -q "^  $d " installed.txt
-          sh install.sh --list 2>&1 | tee list.txt
+          sh install.sh --list > list.txt 2>&1; cat list.txt
           grep -q "^  $d .*(up to date)" list.txt
           sh install.sh --uninstall "$d"
-          sh install.sh --installed 2>&1 | tee installed.txt
+          sh install.sh --installed > installed.txt 2>&1; cat installed.txt
           grep -q "(none installed)" installed.txt
 
   windows:
