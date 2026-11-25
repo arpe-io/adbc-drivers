@@ -28,13 +28,14 @@ $Fixture = @()
 foreach ($i in 120..1) { $Fixture += "arpemssql-v0.9.$i" }
 $Fixture += "arpeteradata-v0.3.8", "arpeteradata-v0.3.6"
 
-$Mock = @{ Calls = 0; FailPage = 0; Endless = $false; Download = "fail"; Sums = "ok"; LastAsset = $null }
+$Mock = @{ Calls = 0; FailPage = 0; Endless = $false; Download = "fail"; Sums = "ok"; LastAsset = $null
+           ApiHeaders = $null; DownloadHeaders = @() }
 
 # Serves the fixture 100 releases per page, honouring `page=N`; counts its calls;
 # throws on page $Mock.FailPage; with $Mock.Endless, ignores `page=` altogether.
 function Invoke-RestMethod {
   param([string]$Uri, $Headers)
-  $null = $Headers
+  $Mock.ApiHeaders = $Headers
   $Mock.Calls++
   $page = 1
   if ($Uri -match '[?&]page=(\d+)') { $page = [int]$matches[1] }
@@ -49,7 +50,8 @@ function Invoke-RestMethod {
 # none at all ($Mock.Sums = "missing") or a wrong one ("bad").
 function Invoke-WebRequest {
   param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing, $Headers)
-  $null = $UseBasicParsing, $Headers
+  $null = $UseBasicParsing
+  $Mock.DownloadHeaders += $Headers
   if ($Mock.Download -ne "ok") { throw "download blocked by the test" }
   if ($Uri -like "*/SHA256SUMS") {
     if ($Mock.Sums -eq "missing") { throw "Response status code does not indicate success: 404 (Not Found)." }
@@ -67,6 +69,8 @@ $Failed = 0
 function Reset-State {
   $Mock.Calls = 0; $Mock.FailPage = 0; $Mock.Endless = $false
   $Mock.Download = "fail"; $Mock.Sums = "ok"; $Mock.LastAsset = $null
+  $Mock.ApiHeaders = $null; $Mock.DownloadHeaders = @()
+  $env:GITHUB_TOKEN = $null; $env:GH_TOKEN = $null
   # A fresh, empty profile for every test.
   $script:TestProfile = Join-Path $Work ([guid]::NewGuid())
   New-Item -ItemType Directory -Path $script:TestProfile | Out-Null
@@ -195,6 +199,33 @@ Test-Case "-DownloadOnly -SkipChecksum downloads without SHA256SUMS" {
   $Version = "0.9.7"; $SkipChecksum = $true; $Dir = Join-Path $env:LOCALAPPDATA "bundle"
   Save-Driver "arpemssql" *> $null
   Test-Path (Join-Path $Dir "arpemssql_adbc_driver-win-x64.dll")
+}
+
+# ---- GitHub token ------------------------------------------------------------------
+Test-Case "the release listing sends GITHUB_TOKEN when it is set" {
+  $env:GITHUB_TOKEN = "tok123"
+  $null = Resolve-LatestTag "arpemssql"
+  $Mock.ApiHeaders["Authorization"] -eq "Bearer tok123"
+}
+Test-Case "the release listing falls back to GH_TOKEN" {
+  $env:GH_TOKEN = "tok456"
+  $null = Resolve-LatestTag "arpemssql"
+  $Mock.ApiHeaders["Authorization"] -eq "Bearer tok456"
+}
+Test-Case "the release listing sends no Authorization header without a token" {
+  $null = Resolve-LatestTag "arpemssql"
+  -not $Mock.ApiHeaders.ContainsKey("Authorization")
+}
+Test-Case "the token is never sent with a binary or SHA256SUMS download" {
+  $env:GITHUB_TOKEN = "tok123"
+  $Mock.Download = "ok"
+  Install-Driver "arpemssql" *> $null
+  ($Mock.DownloadHeaders.Count -eq 2) -and
+    -not ($Mock.DownloadHeaders | Where-Object { $_.ContainsKey("Authorization") })
+}
+Test-Case "the API failure message mentions GITHUB_TOKEN" {
+  $Mock.FailPage = 1
+  (Get-Failure { Show-List }) -match "GITHUB_TOKEN"
 }
 
 # ---- machine ADBC_DRIVER_PATH (-Scope system) ------------------------------------

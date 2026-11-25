@@ -187,5 +187,26 @@ run 'DL_MODE=ok; SUMS_MODE=missing; SKIP_CHECKSUM=1; VERSION=0.9.7; DIR="$HOME/b
 check "--download-only --skip-checksum downloads without SHA256SUMS" \
   exists "$WORK/home/bundle/libarpemssql_adbc_driver-linux-x64.so"
 
+# ---- GitHub token -------------------------------------------------------------------
+# These exercise the real fetch/download (re-sourced over the mocks) with curl
+# replaced by a function that records its arguments.
+REAL='. "$ROOT/install.sh"; curl() { printf "%s\n" "$@" >> "$HOME/../curl_args"; }; : > "$HOME/../curl_args"'
+run "$REAL"'; GITHUB_TOKEN=tok123; fetch https://api.github.com/x'
+check "the release listing sends GITHUB_TOKEN when it is set" \
+  file_has "$WORK/curl_args" "Authorization: Bearer tok123"
+
+run "$REAL"'; GITHUB_TOKEN=""; GH_TOKEN=tok456; fetch https://api.github.com/x'
+check "the release listing falls back to GH_TOKEN" \
+  file_has "$WORK/curl_args" "Authorization: Bearer tok456"
+
+run "$REAL"'; GITHUB_TOKEN=""; GH_TOKEN=""; fetch https://api.github.com/x; grep -c Authorization "$HOME/../curl_args"'
+check "the release listing sends no Authorization header without a token" out_is "0"
+
+run "$REAL"'; GITHUB_TOKEN=tok123; download https://github.com/x "$HOME/f"; grep -c tok123 "$HOME/../curl_args"'
+check "the token is never sent with a binary download" out_is "0"
+
+run 'FAIL_PAGE=1; do_list'
+check "the API failure message mentions GITHUB_TOKEN" err_has "GITHUB_TOKEN"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ]

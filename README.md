@@ -307,7 +307,8 @@ Linux and Windows; use an x64 machine.
 reads the public GitHub API, which allows 60 unauthenticated requests per hour per
 IP address — a limit a shared CI runner or office network can reach. Retry later,
 or name the version: `--version X.Y.Z` (`-Version X.Y.Z` on Windows) installs
-without calling the API.
+without calling the API. In CI, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a GitHub
+token: the installer sends it with that API call only, which lifts the limit.
 
 ## Building from source
 

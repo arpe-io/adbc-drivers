@@ -43,8 +43,19 @@ err()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# GitHub API call. If GITHUB_TOKEN (or GH_TOKEN) is set it is sent along, which
+# lifts GitHub's limit of 60 unauthenticated requests per hour per IP address —
+# the limit shared CI runners run into. The token goes to the API only: binary
+# downloads (download, below) never carry it.
 fetch() { # url -> stdout
-  if have curl; then curl -fsSL "$1"; else wget -qO- "$1"; fi
+  _token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  if have curl; then
+    if [ -n "$_token" ]; then curl -fsSL -H "Authorization: Bearer $_token" "$1"
+    else curl -fsSL "$1"; fi
+  else
+    if [ -n "$_token" ]; then wget -qO- --header="Authorization: Bearer $_token" "$1"
+    else wget -qO- "$1"; fi
+  fi
 }
 download() { # url dest
   if have curl; then curl -fSL --retry 3 -o "$2" "$1"; else wget -q -O "$2" "$1"; fi
@@ -130,8 +141,9 @@ load_release_tags() {
     _page=$(fetch "${API}?per_page=${RELEASE_PAGE_SIZE}&page=${_p}") \
       || err "could not list the releases of ${DIST_REPO} from the GitHub API
   (no network access, or GitHub's limit of 60 unauthenticated requests per hour
-  per IP address was reached). Retry later, or install a specific version, which
-  needs no API call:  install.sh <driver> --version <X.Y.Z>"
+  per IP address was reached). Retry later, set GITHUB_TOKEN to a GitHub token to
+  lift that limit, or install a specific version, which needs no API call:
+    install.sh <driver> --version <X.Y.Z>"
     _tags=$(printf '%s\n' "$_page" | grep '"tag_name":' \
       | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' || true)
     _n=0
@@ -231,6 +243,10 @@ Licence sources are tried in this order: --license, --license-content,
 \$ARPEIO_ADBC_LICENCE_FILE (a path), \$ARPEIO_ADBC_LICENCE (the content). The
 downloaded binary is licence-gated: it needs a valid Arpeio licence at runtime.
 There is no trial build.
+
+Finding the latest version reads the public GitHub API. If \$GITHUB_TOKEN (or
+\$GH_TOKEN) is set, it is sent with that call only, which lifts GitHub's limit
+of 60 unauthenticated requests per hour per IP address (useful in CI).
 EOF
 }
 

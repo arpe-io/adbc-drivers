@@ -127,12 +127,19 @@ function Read-ManifestLibPath {
 # listing would silently report the wrong "latest".
 # The cache is a hashtable changed in place (not a $script: variable), so that it
 # is this run's own whichever way the script was started (file, iex, scriptblock).
+# If GITHUB_TOKEN (or GH_TOKEN) is set it is sent with the listing, which lifts
+# GitHub's limit of 60 unauthenticated requests per hour per IP address - the limit
+# shared CI runners run into. The token goes to the API only: binary downloads
+# never carry it.
 $ReleaseCache = @{ Tags = $null }
 $ReleasePageSize = 100
 $ReleaseMaxPages = 50
 function Get-ReleaseTag {
   if ($null -ne $ReleaseCache.Tags) { return $ReleaseCache.Tags }
   $tags = @()
+  $headers = @{ "User-Agent" = "arpeio-adbc-installer" }
+  $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_TOKEN }
+  if ($token) { $headers["Authorization"] = "Bearer $token" }
   for ($page = 1; ; $page++) {
     if ($page -gt $ReleaseMaxPages) {
       Fail "the GitHub API release listing of $DistRepo does not end after $ReleaseMaxPages pages - giving up"
@@ -142,15 +149,16 @@ function Get-ReleaseTag {
     # Catch everything: the exception type differs between Windows PowerShell 5.1
     # and PowerShell 7. Fail is called outside the try so it is not caught here.
     try {
-      $rels = Invoke-RestMethod -Uri "${Api}?per_page=$ReleasePageSize&page=$page" -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+      $rels = Invoke-RestMethod -Uri "${Api}?per_page=$ReleasePageSize&page=$page" -Headers $headers
     } catch {
       $failure = "$_"
     }
     if ($failure) {
       Fail ("could not list the releases of $DistRepo from the GitHub API: $failure`n" +
             "  (no network access, or GitHub's limit of 60 unauthenticated requests per hour`n" +
-            "  per IP address was reached). Retry later, or install a specific version, which`n" +
-            "  needs no API call:  install.ps1 <driver> -Version X.Y.Z")
+            "  per IP address was reached). Retry later, set GITHUB_TOKEN to a GitHub token to`n" +
+            "  lift that limit, or install a specific version, which needs no API call:`n" +
+            "    install.ps1 <driver> -Version X.Y.Z")
     }
     $count = 0
     foreach ($r in $rels) {
@@ -272,6 +280,10 @@ Licence sources are tried in order: -License, -LicenseContent,
 `$env:ARPEIO_ADBC_LICENCE_FILE (a path), `$env:ARPEIO_ADBC_LICENCE (the content).
 The downloaded binary is licence-gated: it needs a valid Arpeio licence at
 runtime. There is no trial build.
+
+Finding the latest version reads the public GitHub API. If `$env:GITHUB_TOKEN (or
+`$env:GH_TOKEN) is set, it is sent with that call only, which lifts GitHub's limit
+of 60 unauthenticated requests per hour per IP address (useful in CI).
 "@
 }
 
