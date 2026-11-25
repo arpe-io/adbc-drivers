@@ -100,10 +100,12 @@ detect_platform() {
   MANIFEST_KEY="${OS_MANIFEST}_${MANIFEST_ARCH}"
 }
 
-# All published STABLE versions for a driver, newest-first (empty if none), one
-# per line, without the "<name>-v" tag prefix. GitHub returns releases
-# newest-first. Prereleases — any version carrying a hyphen, e.g. 0.5.19-rc1 —
-# are skipped; install one explicitly with `--version 0.5.19-rc1`.
+# All published STABLE versions for a driver, highest version first (empty if
+# none), one per line, without the "<name>-v" tag prefix. The versions are
+# sorted here, number by number: the order GitHub lists releases in is not the
+# order they were published in (it can put 0.4.9 ahead of 0.4.10).
+# Prereleases — any version carrying a hyphen, e.g. 0.5.19-rc1 — are skipped;
+# install one explicitly with `--version 0.5.19-rc1`.
 resolve_versions() {
   fetch "${API}?per_page=100" \
     | grep '"tag_name":' \
@@ -114,7 +116,8 @@ resolve_versions() {
           *-*) : ;;                    # prerelease version — skip
           *) printf '%s\n' "${_t#"$1"-v}" ;;
         esac
-      done
+      done \
+    | sort -t . -k 1,1nr -k 2,2nr -k 3,3nr -k 4,4nr
 }
 
 # Latest published STABLE tag for a driver, e.g. "arpemssql-v0.5.19" (empty if

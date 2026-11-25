@@ -89,8 +89,10 @@ function Read-ManifestLibPath {
   return $null
 }
 
-# All published STABLE versions for a driver, newest-first (empty array if none),
-# without the "<name>-v" tag prefix. GitHub returns releases newest-first.
+# All published STABLE versions for a driver, highest version first (empty array
+# if none), without the "<name>-v" tag prefix. The versions are sorted here,
+# number by number: the order GitHub lists releases in is not the order they
+# were published in (it can put 0.4.9 ahead of 0.4.10).
 # Prereleases (any version carrying a hyphen, e.g. 0.5.19-rc1) are skipped;
 # install one explicitly with -Version 0.5.19-rc1.
 function Resolve-Version {
@@ -103,7 +105,11 @@ function Resolve-Version {
       if ($rest -notmatch '-') { $out += $rest }
     }
   }
-  return $out
+  # A version that does not parse as numbers sorts last instead of failing.
+  return @($out | Sort-Object -Descending -Property {
+      $v = $null
+      if ([version]::TryParse($_, [ref]$v)) { $v } else { [version]'0.0' }
+    })
 }
 
 # Latest published STABLE tag for a driver, e.g. "arpemssql-v0.5.19" (null if none)
