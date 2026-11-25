@@ -17,7 +17,7 @@ jobs:
       - name: Run shellcheck
         # -S warning: report/fail on warnings and errors (the benign SC2317 info
         # on the test-source guard is intentional and does not fail the build).
-        run: shellcheck -S warning -s sh install.sh
+        run: shellcheck -S warning -s sh install.sh tests/test_install.sh tests/check_releases.sh
 
   psscriptanalyzer:
     name: PSScriptAnalyzer (install.ps1)
@@ -36,3 +36,50 @@ jobs:
             throw "PSScriptAnalyzer found $($r.Count) issue(s)."
           }
           Write-Host "PSScriptAnalyzer: clean."
+
+  # The tests run without network access: the GitHub API and the downloads are
+  # replaced by functions (see tests/).
+  test-sh:
+    name: tests (install.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: dash
+        run: dash tests/test_install.sh
+      - name: bash --posix
+        run: bash --posix tests/test_install.sh
+      - name: busybox sh
+        run: |
+          command -v busybox >/dev/null || sudo apt-get install -y -q busybox
+          busybox sh tests/test_install.sh
+
+  test-ps:
+    name: tests (install.ps1, ${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "Windows PowerShell 5.1", os: windows-latest, shell: powershell }
+          - { name: "PowerShell 7 on Windows", os: windows-latest, shell: pwsh }
+          - { name: "PowerShell 7 on Linux", os: ubuntu-latest, shell: pwsh }
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests
+        run: |
+          ./tests/test_install.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+  registry:
+    name: driver list in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: registry.json, install.sh, install.ps1 and README agree
+        shell: pwsh
+        run: |
+          ./tests/test_registry.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
