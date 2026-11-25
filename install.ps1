@@ -58,7 +58,10 @@ function Fail { param([string]$m) Write-Error $m; exit 1 }
 function Get-PlatformArch {
   switch ($env:PROCESSOR_ARCHITECTURE) {
     "AMD64" { return @{ asset = "x64";   manifest = "amd64" } }
-    "ARM64" { return @{ asset = "arm64"; manifest = "arm64" } }
+    # arm64 is not published yet: releases carry x64 binaries only. Re-enable
+    # with this line once arm64 binaries are ready:
+    #   "ARM64" { return @{ asset = "arm64"; manifest = "arm64" } }
+    "ARM64" { Fail "arm64 is not supported yet (x64 only for now)" }
     default { Fail "unsupported architecture '$($env:PROCESSOR_ARCHITECTURE)'" }
   }
 }
@@ -89,6 +92,48 @@ function Read-ManifestLibPath {
   return $null
 }
 
+# The tag of EVERY release of the dist repo, loaded once per run. The API serves
+# at most 100 releases per page and all the drivers share the one listing, so
+# every page is read: stopping at the first would hide the drivers whose latest
+# release sits further down. A page that cannot be fetched is fatal - a partial
+# listing would silently report the wrong "latest".
+# The cache is a hashtable changed in place (not a $script: variable), so that it
+# is this run's own whichever way the script was started (file, iex, scriptblock).
+$ReleaseCache = @{ Tags = $null }
+$ReleasePageSize = 100
+$ReleaseMaxPages = 50
+function Get-ReleaseTag {
+  if ($null -ne $ReleaseCache.Tags) { return $ReleaseCache.Tags }
+  $tags = @()
+  for ($page = 1; ; $page++) {
+    if ($page -gt $ReleaseMaxPages) {
+      Fail "the GitHub API release listing of $DistRepo does not end after $ReleaseMaxPages pages - giving up"
+    }
+    $rels = $null
+    $failure = $null
+    # Catch everything: the exception type differs between Windows PowerShell 5.1
+    # and PowerShell 7. Fail is called outside the try so it is not caught here.
+    try {
+      $rels = Invoke-RestMethod -Uri "${Api}?per_page=$ReleasePageSize&page=$page" -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
+    } catch {
+      $failure = "$_"
+    }
+    if ($failure) {
+      Fail ("could not list the releases of $DistRepo from the GitHub API: $failure`n" +
+            "  (no network access, or GitHub's limit of 60 unauthenticated requests per hour`n" +
+            "  per IP address was reached). Retry later, or install a specific version, which`n" +
+            "  needs no API call:  install.ps1 <driver> -Version X.Y.Z")
+    }
+    $count = 0
+    foreach ($r in $rels) {
+      if ($r -and $r.tag_name) { $tags += $r.tag_name; $count++ }
+    }
+    if ($count -lt $ReleasePageSize) { break }   # a short page is the last one
+  }
+  $ReleaseCache.Tags = $tags
+  return $tags
+}
+
 # All published STABLE versions for a driver, highest version first (empty array
 # if none), without the "<name>-v" tag prefix. The versions are sorted here,
 # number by number: the order GitHub lists releases in is not the order they
@@ -97,11 +142,10 @@ function Read-ManifestLibPath {
 # install one explicitly with -Version 0.5.19-rc1.
 function Resolve-Version {
   param([string]$name)
-  $rels = Invoke-RestMethod -Uri "${Api}?per_page=100" -Headers @{ "User-Agent" = "arpeio-adbc-installer" }
   $out = @()
-  foreach ($r in $rels) {
-    if ($r.tag_name -like "$name-v*") {
-      $rest = $r.tag_name.Substring("$name-v".Length)
+  foreach ($tag in @(Get-ReleaseTag)) {
+    if ($tag -like "$name-v*") {
+      $rest = $tag.Substring("$name-v".Length)
       if ($rest -notmatch '-') { $out += $rest }
     }
   }
