@@ -85,7 +85,7 @@ curl -fsSL https://raw.githubusercontent.com/arpe-io/adbc-drivers/main/install.s
 ## What the installer does
 
 1. Downloads the driver's shared library for your OS/arch from this repo's
-   Releases (tag `<driver>-v<version>`, e.g. `arpemssql-v0.5.19`) and verifies it
+   Releases (tag `<driver>-v<version>`, e.g. `arpemssql-v0.8.4`) and verifies it
    against the release `SHA256SUMS`. Nothing is installed if the checksum does
    not match or the `SHA256SUMS` cannot be downloaded.
 2. Installs the library (default: per-user, under `~/.local/lib/arpeio-adbc/`
@@ -302,16 +302,17 @@ loads by the exact **load name** (`arpemssql`, `arpepgsql`, …).
 **Connection fails with an `ARROW_LIC_*` error.** The driver loaded but found no
 valid licence at runtime. Install one next to the driver (`--license`), or set
 `ARPEIO_ADBC_LICENCE_FILE` / `ARPEIO_ADBC_LICENCE` — see
-[Supplying the licence](#supplying-the-licence). Each driver repo's `LICENSING.md`
-has the full resolution order.
+[Supplying the licence](#supplying-the-licence). Each driver's Licensing page on
+the documentation site has the full resolution order — see for example
+[ArpeMSSQL → Licensing](https://adbc-drivers-docs.arpe.io/drivers/arpemssql/licensing).
 
 **Permission denied during `--system` install.** System-wide installs write to
 `/opt/arpeio-adbc` and the system ADBC directory — run with `sudo` (Unix) or an
 elevated shell (`-Scope system` on Windows). Or drop `--system` for a per-user
 install that needs no admin.
 
-**`macOS is not supported yet`.** macOS binaries are staged but not yet published;
-use Linux or Windows for now.
+**`macOS is not supported yet`.** Only Linux x64 and Windows x64 binaries are
+published; use one of those for now.
 
 **`arm64 is not supported yet`.** Only x64 binaries are published for now, on both
 Linux and Windows; use an x64 machine.
